@@ -1,0 +1,10 @@
+Minor issue. Patch can be submitted upstream
+--- a/tools/CMakeLists.txt
++++ b/tools/CMakeLists.txt
+@@ -6,5 +6,4 @@
+   install(PROGRAMS ${FIL} DESTINATION share/bcc/tools RENAME ${FIL_WE})
+ endforeach()
+ install(FILES ${C_FILES} DESTINATION share/bcc/tools)
+-install(FILES ${TXT_FILES} DESTINATION share/bcc/tools/doc)
+-add_subdirectory(old)
++install(FILES ${TXT_FILES} DESTINATION share/bcc/doc)

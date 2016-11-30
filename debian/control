@@ -1,0 +1,70 @@
+Source: bcc
+Maintainer: Ritesh Raj Sarraf <rrs@debian.org>
+Section: misc
+Priority: optional
+Standards-Version: 3.9.8
+Build-Depends: debhelper (>= 9), cmake, llvm, llvm-dev, libclang-dev, libelf-dev, bison, flex, libedit-dev, clang-format, python-netaddr, python-pyroute2, luajit, libluajit-5.1-dev, libzip-dev, dpkg-dev (>= 1.16.1~), dh-python, python:any | python-all:any | python-dev:any | python-all-dev:any
+Homepage: https://github.com/iovisor/bcc
+
+Package: libbcc
+Architecture: linux-any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Shared Library for BPF Compiler Collection (BCC)
+ BPF Compiler Collection (BCC) is a toolkit for creating efficient
+ kernel tracing and manipulation programs
+ .
+ It makes use of extended BPF (Berkeley Package Filter) and provides tools
+ for BPF based Linux IO analysis, networking, monitoring and more
+ .
+ This package provides the shared library for BPF Compiler Collection
+ to control BPF programs from userspace.
+
+Package: libbcc-dev
+Architecture: all
+Section: libdevel
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: shared library for BPF Compiler Collection (BCC)
+ BPF Compiler Collection (BCC) is a toolkit for creating efficient
+ kernel tracing and manipulation programs
+ .
+ It makes use of extended BPF (Berkeley Package Filter) and provides tools
+ for BPF based Linux IO analysis, networking, monitoring and more
+ .
+ This package provides the development headers for BPF Compiler Collection
+
+Package: python-bcc
+Architecture: all
+Section: python
+Depends: libbcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+Description: Python wrappers for BPF Compiler Collection (BCC)
+ BPF Compiler Collection (BCC) is a toolkit for creating efficient
+ kernel tracing and manipulation programs
+ .
+ It makes use of extended BPF (Berkeley Package Filter) and provides tools
+ for BPF based Linux IO analysis, networking, monitoring and more
+ .
+ This package provides the Python bindings
+
+Package: bcc-tools
+Architecture: all
+Depends: python-bcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+Description: Command line tools for BPF Compiler Collection (BCC)
+ BPF Compiler Collection (BCC) is a toolkit for creating efficient
+ kernel tracing and manipulation programs
+ .
+ It makes use of extended BPF (Berkeley Package Filter) and provides tools
+ for BPF based Linux IO analysis, networking, monitoring and more
+ .
+ This package provides the command-line tools
+
+Package: bcc-lua
+Architecture: linux-any
+Depends: libbcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: Standalone tool to run BCC tracers written in Lua
+ BPF Compiler Collection (BCC) is a toolkit for creating efficient
+ kernel tracing and manipulation programs
+ .
+ It makes use of extended BPF (Berkeley Package Filter) and provides tools
+ for BPF based Linux IO analysis, networking, monitoring and more
+ .
+ This package provides the Lua bindings

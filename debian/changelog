@@ -1,0 +1,7 @@
+bcc (0.2.0-1) unstable; urgency=medium
+
+  * Initial Release (Closes: #123456)
+    Picked many of the initial packaging bits from upstream repository.
+    Thanks. 
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Wed, 30 Nov 2016 15:06:24 +0530

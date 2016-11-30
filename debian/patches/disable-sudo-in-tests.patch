@@ -1,0 +1,37 @@
+--- a/tests/wrapper.sh.in
++++ b/tests/wrapper.sh.in
+@@ -16,23 +16,23 @@
+ function cleanup() {
+   trap - EXIT
+   if [[ "$kind" = "namespace" ]]; then
+-    sudo ip netns delete $ns
++    ip netns delete $ns
+   fi
+ }
+ 
+ trap cleanup EXIT
+ 
+ function ns_run() {
+-  sudo ip netns add $ns
+-  sudo ip link add $ns.in type veth peer name $ns.out
+-  sudo ip link set $ns.in netns $ns
+-  sudo ip netns exec $ns ip link set $ns.in name eth0
+-  sudo ip netns exec $ns ip addr add dev eth0 172.16.1.2/24
+-  sudo ip netns exec $ns ip link set eth0 up
+-  sudo ip netns exec $ns ethtool -K eth0 tx off
+-  sudo ip addr add dev $ns.out 172.16.1.1/24
+-  sudo ip link set $ns.out up
+-  sudo bash -c "PYTHONPATH=$PYTHONPATH LD_LIBRARY_PATH=$LD_LIBRARY_PATH ip netns exec $ns $cmd $1 $2"
++  ip netns add $ns
++  ip link add $ns.in type veth peer name $ns.out
++  ip link set $ns.in netns $ns
++  ip netns exec $ns ip link set $ns.in name eth0
++  ip netns exec $ns ip addr add dev eth0 172.16.1.2/24
++  ip netns exec $ns ip link set eth0 up
++  ip netns exec $ns ethtool -K eth0 tx off
++  ip addr add dev $ns.out 172.16.1.1/24
++  ip link set $ns.out up
++  bash -c "PYTHONPATH=$PYTHONPATH LD_LIBRARY_PATH=$LD_LIBRARY_PATH ip netns exec $ns $cmd $1 $2"
+   return $?
+ }
+ function sudo_run() {

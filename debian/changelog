@@ -1,6 +1,6 @@
 bcc (0.2.0-1) unstable; urgency=medium
 
-  * Initial Release (Closes: #123456)
+  * Initial Release (Closes: #846366)
     Picked many of the initial packaging bits from upstream repository.
     Thanks. 
 

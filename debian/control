@@ -9,7 +9,7 @@ Homepage: https://github.com/iovisor/bcc
 Package: libbcc
 Architecture: linux-any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: Shared Library for BPF Compiler Collection (BCC)
+Description: shared library for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs
  .
@@ -48,14 +48,14 @@ Description: Python wrappers for BPF Compiler Collection (BCC)
 Package: bcc-tools
 Architecture: all
 Depends: python-bcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
-Description: Command line tools for BPF Compiler Collection (BCC)
+Description: tools for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs
  .
  It makes use of extended BPF (Berkeley Package Filter) and provides tools
  for BPF based Linux IO analysis, networking, monitoring and more
  .
- This package provides the command-line tools
+ This package provides the command-line tools and examples
 
 Package: bcc-lua
 Architecture: linux-any

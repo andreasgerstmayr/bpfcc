@@ -9,7 +9,7 @@ License: Apache-2.0
 Files: debian/*
 Comment: The original Debianization took place upstream.
 Copyright: 2015 PLUMgrid, Inc.
-Copyright: 2016 Ritesh Raj Sarraf <rrs@debian.org>
+           2016 Ritesh Raj Sarraf <rrs@debian.org>
 License: Apache-2.0
 
 License: Apache-2.0

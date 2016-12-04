@@ -48,6 +48,7 @@ Description: Python wrappers for BPF Compiler Collection (BCC)
 Package: bpfcc-tools
 Architecture: all
 Depends: python-bpfcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+Conflicts: perf-tools-unstable
 Description: tools for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs

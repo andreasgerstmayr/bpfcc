@@ -1,4 +1,4 @@
 usr/share/bcc/tools/*   usr/sbin/
-usr/share/bcc/man/*     usr/share/bpfcc-tools/man/
+usr/share/bcc/man/*     usr/share/man/
 #usr/share/bcc/examples/
 #usr/share/bcc/doc/

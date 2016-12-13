@@ -3,5 +3,8 @@ bpfcc (0.2.0-1) unstable; urgency=medium
   * Initial Release (Closes: #846366)
     Picked many of the initial packaging bits from upstream repository.
     Thanks. 
+  * [8cf1070] Drop shlibs depends and add python-netaddr to Depends
+  * [a6a9fb4] Add details about files licensed under BSL
+  * [ded0a33] Add Boost License Snippet
 
- -- Ritesh Raj Sarraf <rrs@debian.org>  Wed, 30 Nov 2016 15:06:24 +0530
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Tue, 13 Dec 2016 22:38:32 +0530

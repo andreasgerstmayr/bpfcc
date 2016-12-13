@@ -6,6 +6,16 @@ Files: *
 Copyright: 2015 PLUMgrid, Inc.
 License: Apache-2.0
 
+
+Files: cmake/GetGitRevisionDescription.cmake
+        cmake/GetGitRevisionDescription.cmake.in
+        src/cc/vendor/optional.hpp
+        src/cc/vendor/tinyformat.hpp
+License: Boost Software License 1.0
+Copyright: 2009-2010 Iowa State University
+            2011-2012 Andrzej Krzemienski.
+            2011 Chris Foster
+
 Files: debian/*
 Comment: The original Debianization took place upstream.
 Copyright: 2015 PLUMgrid, Inc.

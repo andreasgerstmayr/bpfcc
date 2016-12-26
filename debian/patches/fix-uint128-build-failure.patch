@@ -1,0 +1,28 @@
+Index: bpfcc/src/cc/frontends/b/type_helper.h
+===================================================================
+--- bpfcc.orig/src/cc/frontends/b/type_helper.h	2016-12-26 19:48:43.135460646 +0530
++++ bpfcc/src/cc/frontends/b/type_helper.h	2016-12-26 19:50:39.240341338 +0530
+@@ -36,7 +36,11 @@
+     case UINT16_T: return sizeof(uint16_t);
+     case UINT32_T: return sizeof(uint32_t);
+     case UINT64_T: return sizeof(uint64_t);
++#if __x86_64__ || __ppc64__ || __arm64__
+     case UINT128_T: return sizeof(__uint128_t);
++#else
++    case UINT128_T: return sizeof(uint64_t);
++#endif
+     default:
+       return 0;
+   }
+@@ -83,7 +87,11 @@
+   } else if (v == 64) {
+     return UINT64_T;
+   } else if (v >= 128) {
++#if __x86_64__ || __ppc64__ || __arm64__
+     return UINT128_T;
++#else
++    return UINT64_T;
++#endif
+   }
+   return VOID;
+ }

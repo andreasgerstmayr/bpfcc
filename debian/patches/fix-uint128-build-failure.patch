@@ -1,3 +1,4 @@
+This patch is just a workaround to get the build going. The actual fix, or the acknowledgement, is yet to come from upstream.
 Index: bpfcc/src/cc/frontends/b/type_helper.h
 ===================================================================
 --- bpfcc.orig/src/cc/frontends/b/type_helper.h	2016-12-26 19:48:43.135460646 +0530

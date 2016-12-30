@@ -22,7 +22,7 @@ Description: shared library for BPF Compiler Collection (BCC)
 Package: libbpfcc-dev
 Architecture: all
 Section: libdevel
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${misc:Depends}
 Description: shared library for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs
@@ -35,7 +35,7 @@ Description: shared library for BPF Compiler Collection (BCC)
 Package: python-bpfcc
 Architecture: all
 Section: python
-Depends: libbpfcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+Depends: libbpfcc (>= ${binary:Version}), ${misc:Depends}, ${python:Depends}
 Description: Python wrappers for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs

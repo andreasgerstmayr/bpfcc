@@ -1,3 +1,18 @@
+bpfcc (0.2.0-2) unstable; urgency=medium
+
+  * [d33527e] Add libfl-dev to build dependency
+  * [f6c75f8] Drop llvm from build deps. Doesn't need explicit mention
+  * [b1cb3d1] Add patch to fix uint128 build failure on 32bit systems
+  * [4ed5b02] Drop conflict on perf-tools-unstable. With the binary
+    filenames suffixed, both packages can and should co-exist
+  * [0321e23] Educate bpfcc build about linux-headers package split.
+    Thanks to George Kargiotakis (Closes: #849747)
+  * [67afd61] Change all executable filenames. Suffix names with '-bpfcc'
+  * [ffc625a] Drop shlibs:Depends. Not needed here
+  * [f6470d2] Document the binary name suffixes in NEWS and README.Debian
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Fri, 30 Dec 2016 23:46:20 +0530
+
 bpfcc (0.2.0-1) unstable; urgency=medium
 
   * Initial Release (Closes: #846366)

@@ -1,9 +1,9 @@
 bpfcc (0.2.0-2) unstable; urgency=medium
 
   Starting with version 0.2.0-2, all binary files have been renamed to
-  $filename-perf suffix.
+  $filename-bpfcc suffix.
   .
-  For example: execsnoop => execsnoop-perf
+  For example: execsnoop => execsnoop-bpfcc
   .
   Similarly, the manpages have been renamed. This is done to accommodate
   users who would like to use perf-tools-unstable, parallely with the

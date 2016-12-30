@@ -18,6 +18,13 @@ CXXFLAGS=$(shell dpkg-buildflags --get CXXFLAGS) -no-pie
 override_dh_auto_configure:
 	dh_auto_configure -- -DREVISION_LAST=$(UPSTREAM_VERSION) -DREVISION=$(UPSTREAM_VERSION) -DLLVM_DEFINITIONS="-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS" -DBCC_KERNEL_HAS_SOURCE_DIR=1
 
+
+override_dh_install:
+	for eachFile in $(CURDIR)/debian/tmp/usr/share/bcc/tools/* ; do \
+	    mv $$eachFile $$eachFile-bpfcc ; \
+	done
+
+
 override_dh_auto_test:
 	@# We can't really run root privilege tests in build env
 	# do not run tests

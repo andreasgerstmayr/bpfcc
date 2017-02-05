@@ -1,2 +1,3 @@
+extend-lua-support.patch
 fix-install-path.patch
 fix-uint128-build-failure.patch

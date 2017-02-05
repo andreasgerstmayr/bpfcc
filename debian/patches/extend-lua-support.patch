@@ -1,0 +1,65 @@
+Extend support to Lua
+Index: bpfcc/cmake/FindLuaJIT.cmake
+===================================================================
+--- bpfcc.orig/cmake/FindLuaJIT.cmake	2017-02-05 21:58:25.386114899 +0530
++++ bpfcc/cmake/FindLuaJIT.cmake	2017-02-05 21:58:25.382781534 +0530
+@@ -31,7 +31,7 @@
+ FIND_PATH(LUAJIT_INCLUDE_DIR lua.h
+   HINTS
+   $ENV{LUAJIT_DIR}
+-  PATH_SUFFIXES include/luajit-2.0 include/luajit2.0 include/luajit include
++  PATH_SUFFIXES include/lua5.3 include/luajit-2.0 include/luajit2.0 include/luajit include
+   PATHS
+   ~/Library/Frameworks
+   /Library/Frameworks
+@@ -44,7 +44,7 @@
+ )
+ 
+ FIND_LIBRARY(LUAJIT_LIBRARY
+-  NAMES libluajit-51.a libluajit-5.1.a libluajit.a
++  NAMES liblua5.3.a libluajit-51.a libluajit-5.1.a libluajit.a
+   HINTS
+   $ENV{LUAJIT_DIR}
+   PATH_SUFFIXES lib64 lib
+Index: bpfcc/src/lua/CMakeLists.txt
+===================================================================
+--- bpfcc.orig/src/lua/CMakeLists.txt	2017-02-05 21:58:25.386114899 +0530
++++ bpfcc/src/lua/CMakeLists.txt	2017-02-05 21:59:10.958086335 +0530
+@@ -1,5 +1,6 @@
+ find_package(LuaJIT)
+ find_program(LUAJIT luajit)
++find_program(LUA53 lua5.3)
+ 
+ if (LUAJIT_LIBRARIES AND LUAJIT)
+ 	FILE(GLOB_RECURSE SRC_LUA
+@@ -18,6 +19,30 @@
+ 		DEPENDS bcc.lua
+ 	)
+ 
++	include_directories(${LUAJIT_INCLUDE_DIR})
++	add_executable(bcc-lua src/main.c bcc.o)
++	set_target_properties(bcc-lua PROPERTIES LINKER_LANGUAGE C)
++	target_link_libraries(bcc-lua ${LUAJIT_LIBRARIES})
++	target_link_libraries(bcc-lua -Wl,--whole-archive bcc-static -Wl,--no-whole-archive)
++
++	install(TARGETS bcc-lua RUNTIME DESTINATION bin)
++elseif (LUAJIT_LIBRARIES AND LUA53)
++	FILE(GLOB_RECURSE SRC_LUA
++		${CMAKE_CURRENT_SOURCE_DIR}/bcc/*.lua
++		${CMAKE_CURRENT_SOURCE_DIR}/bcc/vendor/*.lua)
++
++	ADD_CUSTOM_COMMAND(
++		OUTPUT bcc.lua
++                COMMAND ${LUA53} ${CMAKE_CURRENT_SOURCE_DIR}/src/squish.lua ${CMAKE_CURRENT_SOURCE_DIR}
++		DEPENDS ${SRC_LUA} ${CMAKE_CURRENT_SOURCE_DIR}/squishy
++	)
++
++	ADD_CUSTOM_COMMAND(
++		OUTPUT bcc.o
++                COMMAND ${LUA53} bcc.lua bcc.o
++		DEPENDS bcc.lua
++	)
++
+ 	include_directories(${LUAJIT_INCLUDE_DIR})
+ 	add_executable(bcc-lua src/main.c bcc.o)
+ 	set_target_properties(bcc-lua PROPERTIES LINKER_LANGUAGE C)

@@ -1,20 +1,7 @@
-Index: bpfcc/CMakeLists.txt
-===================================================================
---- bpfcc.orig/CMakeLists.txt	2017-02-08 15:33:29.879430227 +0530
-+++ bpfcc/CMakeLists.txt	2017-02-08 15:33:29.876096832 +0530
-@@ -65,6 +65,8 @@
-   set(BCC_KERNEL_MODULES_SUFFIX "build")
- endif()
- 
-+set(CMAKE_C_COMPILER "gcc-6")
-+set(CMAKE_CXX_COMPILER "g++-6")
- set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
- set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall")
- endif()
 Index: bpfcc/cmake/FindLuaJIT.cmake
 ===================================================================
---- bpfcc.orig/cmake/FindLuaJIT.cmake	2017-02-08 12:38:36.000000000 +0530
-+++ bpfcc/cmake/FindLuaJIT.cmake	2017-02-08 15:34:13.570251910 +0530
+--- bpfcc.orig/cmake/FindLuaJIT.cmake	2017-02-08 16:50:46.763158947 +0530
++++ bpfcc/cmake/FindLuaJIT.cmake	2017-02-08 16:50:46.759825524 +0530
 @@ -31,7 +31,7 @@
  FIND_PATH(LUAJIT_INCLUDE_DIR lua.h
    HINTS

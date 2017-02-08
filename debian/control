@@ -3,7 +3,7 @@ Maintainer: Ritesh Raj Sarraf <rrs@debian.org>
 Section: misc
 Priority: optional
 Standards-Version: 3.9.8
-Build-Depends: debhelper (>= 9), cmake, llvm-dev, libclang-dev, libelf-dev, bison, flex, libfl-dev, libedit-dev, clang-format, python-netaddr, python-pyroute2, luajit, libluajit-5.1-dev, libzip-dev, dpkg-dev (>= 1.16.1~), dh-python, python:any | python-all:any | python-dev:any | python-all-dev:any
+Build-Depends: debhelper (>= 9), cmake, llvm-dev, libclang-dev, libelf-dev, bison, flex, libfl-dev, libedit-dev, clang-format, python-netaddr, python-pyroute2, luajit (>= 2.1.0~beta2+dfsg-3), libluajit-5.1-dev (>= 2.1.0~beta2+dfsg-3), libzip-dev, dpkg-dev (>= 1.16.1~), dh-python, python:any | python-all:any | python-dev:any | python-all-dev:any
 Homepage: https://github.com/iovisor/bcc
 Vcs-Git: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 Vcs-Browser: https://anonscm.debian.org/git/collab-maint/bpfcc.git

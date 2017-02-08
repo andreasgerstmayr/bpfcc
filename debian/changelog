@@ -1,3 +1,12 @@
+bpfcc (0.2.0-3) experimental; urgency=medium
+
+  * [06cde45] Add Vcs URLs
+  * [68431db] Bump build dependency to fix build dependency on
+    some architectures. Thanks to Breno Leitao (Closes: #853888)
+  * [b6da2f9] Override Experimental's gcc
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Wed, 08 Feb 2017 16:53:08 +0530
+
 bpfcc (0.2.0-2) unstable; urgency=medium
 
   * [d33527e] Add libfl-dev to build dependency

@@ -1,0 +1,13 @@
+Index: bpfcc/cmake/FindLuaJIT.cmake
+===================================================================
+--- bpfcc.orig/cmake/FindLuaJIT.cmake	2017-02-08 16:50:46.763158947 +0530
++++ bpfcc/cmake/FindLuaJIT.cmake	2017-02-08 16:50:46.759825524 +0530
+@@ -31,7 +31,7 @@
+ FIND_PATH(LUAJIT_INCLUDE_DIR lua.h
+   HINTS
+   $ENV{LUAJIT_DIR}
+-  PATH_SUFFIXES include/luajit-2.0 include/luajit2.0 include/luajit include
++  PATH_SUFFIXES include/luajit-2.1 include/luajit-2.0 include/luajit2.0 include/luajit include
+   PATHS
+   ~/Library/Frameworks
+   /Library/Frameworks

@@ -1,0 +1,42 @@
+bcc (0.2.0-1) unstable; urgency=low
+
+  * Add many new utilities in tools/
+  * Support for USDT
+  * Support for lua
+  * Many utilities converted to perf ring buffer
+  * Support for tracepoints
+
+ -- Brenden Blanco <bblanco@plumgrid.com>  Thu, 08 Sep 2016 17:05:28 -0700
+
+bcc (0.1.8-1) unstable; urgency=low
+
+  * Add many new utilities in tools/
+   * wakeuptime, offwaketime, argdist, {xfs,zfs,ext4}{slower,dist}, others
+  * Support for bpf_perf_event()
+  * Support for public tables shared between programs
+  * Support for up to 4.4 features
+  * Remove external file dependencies from clang lib
+
+ -- Brenden Blanco <bblanco@plumgrid.com>  Mon, 23 Feb 2016 00:41:00 +0000
+
+bcc (0.1.7-1) unstable; urgency=low
+
+  * Tracing features and bugfixes
+  * Built against LLVM 3.8 HEAD
+
+ -- Brenden Blanco <bblanco@plumgrid.com>  Mon, 12 Oct 2015 16:47:09 +0000
+
+bcc (0.1.6-1) unstable; urgency=low
+
+  * Stability fixes
+  * Improvements to python API
+  * Tracing features
+  * Support for kernel 4.2 features
+
+ -- Brenden Blanco <bblanco@plumgrid.com>  Wed, 02 Sep 2015 16:23:19 +0000
+
+bcc (0.1.5-1) unstable; urgency=low
+
+  * Initial release
+
+ -- Brenden Blanco <bblanco@plumgrid.com>  Mon, 06 Jul 2015 18:04:28 +0000

@@ -29,16 +29,22 @@ struct bcc_symbol {
   uint64_t offset;
 };
 
+typedef int(* SYM_CB)(const char *symname, uint64_t addr);
+
 void *bcc_symcache_new(int pid);
+void bcc_free_symcache(void *symcache, int pid);
+
 int bcc_symcache_resolve(void *symcache, uint64_t addr, struct bcc_symbol *sym);
-int bcc_symcache_resolve_name(void *resolver, const char *name, uint64_t *addr);
+int bcc_symcache_resolve_name(void *resolver, const char *module,
+                              const char *name, uint64_t *addr);
 void bcc_symcache_refresh(void *resolver);
 
 int bcc_resolve_global_addr(int pid, const char *module, const uint64_t address,
                             uint64_t *global);
+int bcc_foreach_symbol(const char *module, SYM_CB cb);
 int bcc_find_symbol_addr(struct bcc_symbol *sym);
 int bcc_resolve_symname(const char *module, const char *symname,
-                        const uint64_t addr, struct bcc_symbol *sym);
+                        const uint64_t addr, int pid, struct bcc_symbol *sym);
 #ifdef __cplusplus
 }
 #endif

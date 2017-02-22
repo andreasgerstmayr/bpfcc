@@ -27,6 +27,7 @@
 
 #include "b_frontend_action.h"
 #include "shared_table.h"
+#include "common.h"
 
 #include "libbpf.h"
 
@@ -38,9 +39,13 @@ const char *calling_conv_regs_x86[] = {
 };
 const char *calling_conv_regs_ppc[] = {"gpr[3]", "gpr[4]", "gpr[5]",
                                        "gpr[6]", "gpr[7]", "gpr[8]"};
+const char *calling_conv_regs_arm64[] = {"regs[0]", "regs[1]", "regs[2]",
+                                       "regs[3]", "regs[4]", "regs[5]"};
 // todo: support more archs
 #if defined(__powerpc__)
 const char **calling_conv_regs = calling_conv_regs_ppc;
+#elif defined(__aarch64__)
+const char **calling_conv_regs = calling_conv_regs_arm64;
 #else
 const char **calling_conv_regs = calling_conv_regs_x86;
 #endif
@@ -332,6 +337,12 @@ bool BTypeVisitor::TraverseCallExpr(CallExpr *Call) {
 // to:
 //  bpf_table_foo_elem(bpf_pseudo_fd(table), &key [,&leaf])
 bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
+  // Get rewritten text given a source range, w/ expansion range applied
+  auto getRewrittenText = [this] (SourceRange R) {
+    auto r = rewriter_.getSourceMgr().getExpansionRange(R);
+    return rewriter_.getRewrittenText(r);
+  };
+
   // make sure node is a reference to a bpf table, which is assured by the
   // presence of the section("maps/<typename>") GNU __attribute__
   if (MemberExpr *Memb = dyn_cast<MemberExpr>(Call->getCallee()->IgnoreImplicit())) {
@@ -341,9 +352,8 @@ bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
         if (!A->getName().startswith("maps"))
           return true;
 
-        SourceRange argRange(Call->getArg(0)->getLocStart(),
-                             Call->getArg(Call->getNumArgs()-1)->getLocEnd());
-        string args = rewriter_.getRewrittenText(argRange);
+        string args = getRewrittenText(SourceRange(Call->getArg(0)->getLocStart(),
+                                                   Call->getArg(Call->getNumArgs() - 1)->getLocEnd()));
 
         // find the table fd, which was opened at declaration time
         auto table_it = tables_.begin();
@@ -362,10 +372,8 @@ bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
         if (memb_name == "lookup_or_init") {
           map_update_policy = "BPF_NOEXIST";
           string name = Ref->getDecl()->getName();
-          string arg0 = rewriter_.getRewrittenText(SourceRange(Call->getArg(0)->getLocStart(),
-                                                               Call->getArg(0)->getLocEnd()));
-          string arg1 = rewriter_.getRewrittenText(SourceRange(Call->getArg(1)->getLocStart(),
-                                                               Call->getArg(1)->getLocEnd()));
+          string arg0 = getRewrittenText(Call->getArg(0)->getSourceRange());
+          string arg1 = getRewrittenText(Call->getArg(1)->getSourceRange());
           string lookup = "bpf_map_lookup_elem_(bpf_pseudo_fd(1, " + fd + ")";
           string update = "bpf_map_update_elem_(bpf_pseudo_fd(1, " + fd + ")";
           txt  = "({typeof(" + name + ".leaf) *leaf = " + lookup + ", " + arg0 + "); ";
@@ -377,8 +385,7 @@ bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
           txt += "leaf;})";
         } else if (memb_name == "increment") {
           string name = Ref->getDecl()->getName();
-          string arg0 = rewriter_.getRewrittenText(SourceRange(Call->getArg(0)->getLocStart(),
-                                                               Call->getArg(0)->getLocEnd()));
+          string arg0 = getRewrittenText(Call->getArg(0)->getSourceRange());
           string lookup = "bpf_map_lookup_elem_(bpf_pseudo_fd(1, " + fd + ")";
           string update = "bpf_map_update_elem_(bpf_pseudo_fd(1, " + fd + ")";
           txt  = "({ typeof(" + name + ".key) _key = " + arg0 + "; ";
@@ -390,21 +397,16 @@ bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
           txt += "if (_leaf) (*_leaf)++; })";
         } else if (memb_name == "perf_submit") {
           string name = Ref->getDecl()->getName();
-          string arg0 = rewriter_.getRewrittenText(SourceRange(Call->getArg(0)->getLocStart(),
-                                                               Call->getArg(0)->getLocEnd()));
-          string args_other = rewriter_.getRewrittenText(SourceRange(Call->getArg(1)->getLocStart(),
-                                                                     Call->getArg(2)->getLocEnd()));
+          string arg0 = getRewrittenText(Call->getArg(0)->getSourceRange());
+          string args_other = getRewrittenText(SourceRange(Call->getArg(1)->getLocStart(),
+                                                           Call->getArg(2)->getLocEnd()));
           txt = "bpf_perf_event_output(" + arg0 + ", bpf_pseudo_fd(1, " + fd + ")";
           txt += ", bpf_get_smp_processor_id(), " + args_other + ")";
         } else if (memb_name == "perf_submit_skb") {
-          string skb = rewriter_.getRewrittenText(SourceRange(Call->getArg(0)->getLocStart(),
-                                                               Call->getArg(0)->getLocEnd()));
-          string skb_len = rewriter_.getRewrittenText(SourceRange(Call->getArg(1)->getLocStart(),
-                                                                  Call->getArg(1)->getLocEnd()));
-          string meta = rewriter_.getRewrittenText(SourceRange(Call->getArg(2)->getLocStart(),
-                                                               Call->getArg(2)->getLocEnd()));
-          string meta_len = rewriter_.getRewrittenText(SourceRange(Call->getArg(3)->getLocStart(),
-                                                                   Call->getArg(3)->getLocEnd()));
+          string skb = getRewrittenText(Call->getArg(0)->getSourceRange());
+          string skb_len = getRewrittenText(Call->getArg(1)->getSourceRange());
+          string meta = getRewrittenText(Call->getArg(2)->getSourceRange());
+          string meta_len = getRewrittenText(Call->getArg(3)->getSourceRange());
           txt = "bpf_perf_event_output(" +
             skb + ", " +
             "bpf_pseudo_fd(1, " + fd + "), " +
@@ -413,8 +415,7 @@ bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
             meta_len + ");";
         } else if (memb_name == "get_stackid") {
             if (table_it->type == BPF_MAP_TYPE_STACK_TRACE) {
-              string arg0 = rewriter_.getRewrittenText(SourceRange(Call->getArg(0)->getLocStart(),
-                                                                   Call->getArg(0)->getLocEnd()));
+              string arg0 = getRewrittenText(Call->getArg(0)->getSourceRange());
               txt = "bpf_get_stackid(";
               txt += "bpf_pseudo_fd(1, " + fd + "), " + arg0;
               rewrite_end = Call->getArg(0)->getLocEnd();
@@ -470,7 +471,7 @@ bool BTypeVisitor::VisitCallExpr(CallExpr *Call) {
 
         vector<string> args;
         for (auto arg : Call->arguments())
-          args.push_back(rewriter_.getRewrittenText(SourceRange(arg->getLocStart(), arg->getLocEnd())));
+          args.push_back(getRewrittenText(arg->getSourceRange()));
 
         string text;
         if (Decl->getName() == "incr_cksum_l3") {
@@ -595,13 +596,6 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
     }
     const RecordDecl *RD = R->getDecl()->getDefinition();
 
-    int major = 0, minor = 0;
-    struct utsname un;
-    if (uname(&un) == 0) {
-      // release format: <major>.<minor>.<revision>[-<othertag>]
-      sscanf(un.release, "%d.%d.", &major, &minor);
-    }
-
     TableDesc table = {};
     table.name = Decl->getName();
 
@@ -626,10 +620,18 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
         visitor.TraverseType(F->getType());
       } else if (F->getName() == "data") {
         table.max_entries = sz / table.leaf_size;
+      } else if (F->getName() == "flags") {
+        unsigned idx = F->getFieldIndex();
+        if (auto I = dyn_cast_or_null<InitListExpr>(Decl->getInit())) {
+          llvm::APSInt res;
+          if (I->getInit(idx)->EvaluateAsInt(res, C)) {
+            table.flags = res.getExtValue();
+          }
+        }
       }
       ++i;
     }
-    bool is_extern = false;
+
     bpf_map_type map_type = BPF_MAP_TYPE_UNSPEC;
     if (A->getName() == "maps/hash") {
       map_type = BPF_MAP_TYPE_HASH;
@@ -639,6 +641,12 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
       map_type = BPF_MAP_TYPE_PERCPU_HASH;
     } else if (A->getName() == "maps/percpu_array") {
       map_type = BPF_MAP_TYPE_PERCPU_ARRAY;
+    } else if (A->getName() == "maps/lru_hash") {
+      map_type = BPF_MAP_TYPE_LRU_HASH;
+    } else if (A->getName() == "maps/lru_percpu_hash") {
+      map_type = BPF_MAP_TYPE_LRU_PERCPU_HASH;
+    } else if (A->getName() == "maps/lpm_trie") {
+      map_type = BPF_MAP_TYPE_LPM_TRIE;
     } else if (A->getName() == "maps/histogram") {
       if (table.key_desc == "\"int\"")
         map_type = BPF_MAP_TYPE_ARRAY;
@@ -651,7 +659,7 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
       map_type = BPF_MAP_TYPE_PROG_ARRAY;
     } else if (A->getName() == "maps/perf_output") {
       map_type = BPF_MAP_TYPE_PERF_EVENT_ARRAY;
-      int numcpu = sysconf(_SC_NPROCESSORS_ONLN);
+      int numcpu = get_possible_cpus().size();
       if (numcpu <= 0)
         numcpu = 1;
       table.max_entries = numcpu;
@@ -660,8 +668,9 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
     } else if (A->getName() == "maps/stacktrace") {
       map_type = BPF_MAP_TYPE_STACK_TRACE;
     } else if (A->getName() == "maps/extern") {
-      is_extern = true;
+      table.is_extern = true;
       table.fd = SharedTables::instance()->lookup_fd(table.name);
+      table.type = SharedTables::instance()->lookup_type(table.name);
     } else if (A->getName() == "maps/export") {
       if (table.name.substr(0, 2) == "__")
         table.name = table.name.substr(2);
@@ -672,7 +681,7 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
         error(Decl->getLocStart(), "reference to undefined table");
         return false;
       }
-      if (!SharedTables::instance()->insert_fd(table.name, table_it->fd)) {
+      if (!SharedTables::instance()->insert_fd(table.name, table_it->fd, table_it->type)) {
         error(Decl->getLocStart(), "could not export bpf map %0: %1") << table.name << "already in use";
         return false;
       }
@@ -680,14 +689,14 @@ bool BTypeVisitor::VisitVarDecl(VarDecl *Decl) {
       return true;
     }
 
-    if (!is_extern) {
+    if (!table.is_extern) {
       if (map_type == BPF_MAP_TYPE_UNSPEC) {
         error(Decl->getLocStart(), "unsupported map type: %0") << A->getName();
         return false;
       }
 
       table.type = map_type;
-      table.fd = bpf_create_map(map_type, table.key_size, table.leaf_size, table.max_entries);
+      table.fd = bpf_create_map(map_type, table.key_size, table.leaf_size, table.max_entries, table.flags);
     }
     if (table.fd < 0) {
       error(Decl->getLocStart(), "could not open bpf map: %0\nis %1 map type enabled in your kernel?") <<

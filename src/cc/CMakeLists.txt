@@ -35,12 +35,12 @@ if (CMAKE_COMPILER_IS_GNUCC AND LIBCLANG_ISSTATIC)
   endif()
 endif()
 
-add_library(bcc-shared SHARED bpf_common.cc bpf_module.cc libbpf.c perf_reader.c shared_table.cc exported_files.cc bcc_elf.c bcc_perf_map.c bcc_proc.c bcc_syms.cc usdt_args.cc usdt.cc)
+add_library(bcc-shared SHARED bpf_common.cc bpf_module.cc libbpf.c perf_reader.c shared_table.cc exported_files.cc bcc_elf.c bcc_perf_map.c bcc_proc.c bcc_syms.cc usdt_args.cc usdt.cc common.cc BPF.cc BPFTable.cc)
 set_target_properties(bcc-shared PROPERTIES VERSION ${REVISION_LAST} SOVERSION 0)
 set_target_properties(bcc-shared PROPERTIES OUTPUT_NAME bcc)
 
 add_library(bcc-loader-static libbpf.c perf_reader.c bcc_elf.c bcc_perf_map.c bcc_proc.c)
-add_library(bcc-static STATIC bpf_common.cc bpf_module.cc shared_table.cc exported_files.cc bcc_syms.cc usdt_args.cc usdt.cc)
+add_library(bcc-static STATIC bpf_common.cc bpf_module.cc shared_table.cc exported_files.cc bcc_syms.cc usdt_args.cc usdt.cc common.cc BPF.cc BPFTable.cc)
 set_target_properties(bcc-static PROPERTIES OUTPUT_NAME bcc)
 
 set(llvm_raw_libs bitwriter bpfcodegen irreader linker
@@ -48,6 +48,10 @@ set(llvm_raw_libs bitwriter bpfcodegen irreader linker
 list(FIND LLVM_AVAILABLE_LIBS "LLVMCoverage" _llvm_coverage)
 if (${_llvm_coverage} GREATER -1)
   list(APPEND llvm_raw_libs coverage)
+endif()
+list(FIND LLVM_AVAILABLE_LIBS "LLVMCoroutines" _llvm_coroutines)
+if (${_llvm_coroutines} GREATER -1)
+  list(APPEND llvm_raw_libs coroutines)
 endif()
 llvm_map_components_to_libnames(llvm_libs ${llvm_raw_libs})
 llvm_expand_dependencies(expanded_libs ${llvm_libs})
@@ -63,7 +67,7 @@ target_link_libraries(bcc-static b_frontend clang_frontend bcc-loader-static ${c
 
 install(TARGETS bcc-shared LIBRARY COMPONENT libbcc
   DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES bpf_common.h bpf_module.h bcc_syms.h ../libbpf.h COMPONENT libbcc
+install(FILES bpf_common.h bpf_module.h bcc_syms.h bcc_exception.h libbpf.h perf_reader.h BPF.h BPFTable.h shared_table.h COMPONENT libbcc
   DESTINATION include/bcc)
 install(DIRECTORY compat/linux/ COMPONENT libbcc
   DESTINATION include/bcc/compat/linux

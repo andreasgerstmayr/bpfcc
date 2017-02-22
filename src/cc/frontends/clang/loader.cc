@@ -20,11 +20,14 @@
 #include <fcntl.h>
 #include <ftw.h>
 #include <map>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 #include <linux/bpf.h>
 
@@ -47,7 +50,7 @@
 #include <llvm/IR/Module.h>
 
 #include "common.h"
-#include "exception.h"
+#include "bcc_exception.h"
 #include "exported_files.h"
 #include "kbuild_helper.h"
 #include "b_frontend_action.h"
@@ -74,6 +77,33 @@ ClangLoader::ClangLoader(llvm::LLVMContext *ctx, unsigned flags)
 
 ClangLoader::~ClangLoader() {}
 
+namespace
+{
+
+bool is_dir(const string& path)
+{
+  struct stat buf;
+
+  if (::stat (path.c_str (), &buf) < 0)
+    return false;
+
+  return S_ISDIR(buf.st_mode);
+}
+
+std::pair<bool, string> get_kernel_path_info(const string kdir)
+{
+  if (is_dir(kdir + "/build") && is_dir(kdir + "/source"))
+    return std::make_pair (true, "source");
+
+  const char* suffix_from_env = ::getenv("BCC_KERNEL_MODULES_SUFFIX");
+  if (suffix_from_env)
+    return std::make_pair(false, string(suffix_from_env));
+
+  return std::make_pair(false, "build");
+}
+
+}
+
 int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDesc>> *tables,
                        const string &file, bool in_memory, const char *cflags[], int ncflags) {
   using namespace clang;
@@ -83,9 +113,10 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   struct utsname un;
   uname(&un);
   string kdir = string(KERNEL_MODULES_DIR) + "/" + un.release;
+  auto kernel_path_info = get_kernel_path_info (kdir);
 
   // clang needs to run inside the kernel dir
-  DirStack dstack(kdir + "/" + KERNEL_MODULES_SUFFIX);
+  DirStack dstack(kdir + "/" + kernel_path_info.second);
   if (!dstack.ok())
     return -1;
 
@@ -106,9 +137,11 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
                                    "-Wno-deprecated-declarations",
                                    "-Wno-gnu-variable-sized-type-not-at-end",
                                    "-fno-color-diagnostics",
+                                   "-fno-unwind-tables",
+                                   "-fno-asynchronous-unwind-tables",
                                    "-x", "c", "-c", abs_file.c_str()});
 
-  KBuildHelper kbuild_helper(kdir);
+  KBuildHelper kbuild_helper(kdir, kernel_path_info.first);
   vector<string> kflags;
   if (kbuild_helper.get_flags(un.machine, &kflags))
     return -1;
@@ -134,7 +167,13 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
 
   // set up the command line argument wrapper
 #if defined(__powerpc64__)
-  driver::Driver drv("", "ppc64le-unknown-linux-gnu", diags);
+#if defined(_CALL_ELF) && _CALL_ELF == 2
+  driver::Driver drv("", "powerpc64le-unknown-linux-gnu", diags);
+#else
+  driver::Driver drv("", "powerpc64-unknown-linux-gnu", diags);
+#endif
+#elif defined(__aarch64__)
+  driver::Driver drv("", "aarch64-unknown-linux-gnu", diags);
 #else
   driver::Driver drv("", "x86_64-unknown-linux-gnu", diags);
 #endif
@@ -172,24 +211,25 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   }
 
   // pre-compilation pass for generating tracepoint structures
-  auto invocation0 = make_unique<CompilerInvocation>();
-  if (!CompilerInvocation::CreateFromArgs(*invocation0, const_cast<const char **>(ccargs.data()),
-                                          const_cast<const char **>(ccargs.data()) + ccargs.size(), diags))
+  CompilerInstance compiler0;
+  CompilerInvocation &invocation0 = compiler0.getInvocation();
+  if (!CompilerInvocation::CreateFromArgs(
+          invocation0, const_cast<const char **>(ccargs.data()),
+          const_cast<const char **>(ccargs.data()) + ccargs.size(), diags))
     return -1;
 
-  invocation0->getPreprocessorOpts().RetainRemappedFileBuffers = true;
+  invocation0.getPreprocessorOpts().RetainRemappedFileBuffers = true;
   for (const auto &f : remapped_files_)
-    invocation0->getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
+    invocation0.getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
 
   if (in_memory) {
-    invocation0->getPreprocessorOpts().addRemappedFile(main_path, &*main_buf);
-    invocation0->getFrontendOpts().Inputs.clear();
-    invocation0->getFrontendOpts().Inputs.push_back(FrontendInputFile(main_path, IK_C));
+    invocation0.getPreprocessorOpts().addRemappedFile(main_path, &*main_buf);
+    invocation0.getFrontendOpts().Inputs.clear();
+    invocation0.getFrontendOpts().Inputs.push_back(
+        FrontendInputFile(main_path, IK_C));
   }
-  invocation0->getFrontendOpts().DisableFree = false;
+  invocation0.getFrontendOpts().DisableFree = false;
 
-  CompilerInstance compiler0;
-  compiler0.setInvocation(invocation0.release());
   compiler0.createDiagnostics(new IgnoringDiagConsumer());
 
   // capture the rewritten c file
@@ -200,24 +240,25 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   unique_ptr<llvm::MemoryBuffer> out_buf = llvm::MemoryBuffer::getMemBuffer(out_str);
 
   // first pass
-  auto invocation1 = make_unique<CompilerInvocation>();
-  if (!CompilerInvocation::CreateFromArgs(*invocation1, const_cast<const char **>(ccargs.data()),
-                                          const_cast<const char **>(ccargs.data()) + ccargs.size(), diags))
+  CompilerInstance compiler1;
+  CompilerInvocation &invocation1 = compiler1.getInvocation();
+  if (!CompilerInvocation::CreateFromArgs(
+          invocation1, const_cast<const char **>(ccargs.data()),
+          const_cast<const char **>(ccargs.data()) + ccargs.size(), diags))
     return -1;
 
   // This option instructs clang whether or not to free the file buffers that we
   // give to it. Since the embedded header files should be copied fewer times
   // and reused if possible, set this flag to true.
-  invocation1->getPreprocessorOpts().RetainRemappedFileBuffers = true;
+  invocation1.getPreprocessorOpts().RetainRemappedFileBuffers = true;
   for (const auto &f : remapped_files_)
-    invocation1->getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
-  invocation1->getPreprocessorOpts().addRemappedFile(main_path, &*out_buf);
-  invocation1->getFrontendOpts().Inputs.clear();
-  invocation1->getFrontendOpts().Inputs.push_back(FrontendInputFile(main_path, IK_C));
-  invocation1->getFrontendOpts().DisableFree = false;
+    invocation1.getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
+  invocation1.getPreprocessorOpts().addRemappedFile(main_path, &*out_buf);
+  invocation1.getFrontendOpts().Inputs.clear();
+  invocation1.getFrontendOpts().Inputs.push_back(
+      FrontendInputFile(main_path, IK_C));
+  invocation1.getFrontendOpts().DisableFree = false;
 
-  CompilerInstance compiler1;
-  compiler1.setInvocation(invocation1.release());
   compiler1.createDiagnostics();
 
   // capture the rewritten c file
@@ -231,21 +272,22 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   *tables = bact.take_tables();
 
   // second pass, clear input and take rewrite buffer
-  auto invocation2 = make_unique<CompilerInvocation>();
-  if (!CompilerInvocation::CreateFromArgs(*invocation2, const_cast<const char **>(ccargs.data()),
-                                          const_cast<const char **>(ccargs.data()) + ccargs.size(), diags))
-    return -1;
   CompilerInstance compiler2;
-  invocation2->getPreprocessorOpts().RetainRemappedFileBuffers = true;
+  CompilerInvocation &invocation2 = compiler2.getInvocation();
+  if (!CompilerInvocation::CreateFromArgs(
+          invocation2, const_cast<const char **>(ccargs.data()),
+          const_cast<const char **>(ccargs.data()) + ccargs.size(), diags))
+    return -1;
+  invocation2.getPreprocessorOpts().RetainRemappedFileBuffers = true;
   for (const auto &f : remapped_files_)
-    invocation2->getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
-  invocation2->getPreprocessorOpts().addRemappedFile(main_path, &*out_buf1);
-  invocation2->getFrontendOpts().Inputs.clear();
-  invocation2->getFrontendOpts().Inputs.push_back(FrontendInputFile(main_path, IK_C));
-  invocation2->getFrontendOpts().DisableFree = false;
+    invocation2.getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
+  invocation2.getPreprocessorOpts().addRemappedFile(main_path, &*out_buf1);
+  invocation2.getFrontendOpts().Inputs.clear();
+  invocation2.getFrontendOpts().Inputs.push_back(
+      FrontendInputFile(main_path, IK_C));
+  invocation2.getFrontendOpts().DisableFree = false;
   // suppress warnings in the 2nd pass, but bail out on errors (our fault)
-  invocation2->getDiagnosticOpts().IgnoreWarnings = true;
-  compiler2.setInvocation(invocation2.release());
+  invocation2.getDiagnosticOpts().IgnoreWarnings = true;
   compiler2.createDiagnostics();
 
   EmitLLVMOnlyAction ir_act(&*ctx_);

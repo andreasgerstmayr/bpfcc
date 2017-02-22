@@ -38,7 +38,7 @@ R"********(
 #define SEC(NAME) __attribute__((section(NAME), used))
 
 // Changes to the macro require changes in BFrontendAction classes
-#define BPF_TABLE(_table_type, _key_type, _leaf_type, _name, _max_entries) \
+#define BPF_F_TABLE(_table_type, _key_type, _leaf_type, _name, _max_entries, _flags) \
 struct _name##_table_t { \
   _key_type key; \
   _leaf_type leaf; \
@@ -50,9 +50,13 @@ struct _name##_table_t { \
   void (*increment) (_key_type); \
   int (*get_stackid) (void *, u64); \
   _leaf_type data[_max_entries]; \
+  int flags; \
 }; \
 __attribute__((section("maps/" _table_type))) \
-struct _name##_table_t _name
+struct _name##_table_t _name = { .flags = (_flags) }
+
+#define BPF_TABLE(_table_type, _key_type, _leaf_type, _name, _max_entries) \
+BPF_F_TABLE(_table_type, _key_type, _leaf_type, _name, _max_entries, 0);
 
 // define a table same as above but allow it to be referenced by other modules
 #define BPF_TABLE_PUBLIC(_table_type, _key_type, _leaf_type, _name, _max_entries) \
@@ -143,7 +147,7 @@ static u32 (*bpf_get_prandom_u32)(void) =
 static int (*bpf_trace_printk_)(const char *fmt, u64 fmt_size, ...) =
   (void *) BPF_FUNC_trace_printk;
 int bpf_trace_printk(const char *fmt, ...) asm("llvm.bpf.extra");
-static void bpf_tail_call_(u64 map_fd, void *ctx, int index) {
+static inline void bpf_tail_call_(u64 map_fd, void *ctx, int index) {
   ((void (*)(void *, u64, int))BPF_FUNC_tail_call)(ctx, map_fd, index);
 }
 static int (*bpf_clone_redirect)(void *ctx, int ifindex, u32 flags) =
@@ -176,8 +180,6 @@ static int (*bpf_perf_event_output)(void *ctx, void *map, u64 index, void *data,
   (void *) BPF_FUNC_perf_event_output;
 static int (*bpf_skb_load_bytes)(void *ctx, int offset, void *to, u32 len) =
   (void *) BPF_FUNC_skb_load_bytes;
-static u64 (*bpf_get_current_task)(void) =
-  (void *) BPF_FUNC_get_current_task;
 
 /* bpf_get_stackid will return a negative value in the case of an error
  *
@@ -199,6 +201,34 @@ int bpf_get_stackid(uintptr_t map, void *ctx, u64 flags) {
 
 static int (*bpf_csum_diff)(void *from, u64 from_size, void *to, u64 to_size, u64 seed) =
   (void *) BPF_FUNC_csum_diff;
+static int (*bpf_skb_get_tunnel_opt)(void *ctx, void *md, u32 size) =
+  (void *) BPF_FUNC_skb_get_tunnel_opt;
+static int (*bpf_skb_set_tunnel_opt)(void *ctx, void *md, u32 size) =
+  (void *) BPF_FUNC_skb_set_tunnel_opt;
+static int (*bpf_skb_change_proto)(void *ctx, u16 proto, u64 flags) =
+  (void *) BPF_FUNC_skb_change_proto;
+static int (*bpf_skb_change_type)(void *ctx, u32 type) =
+  (void *) BPF_FUNC_skb_change_type;
+static u32 (*bpf_get_hash_recalc)(void *ctx) =
+  (void *) BPF_FUNC_get_hash_recalc;
+static u64 (*bpf_get_current_task)(void) =
+  (void *) BPF_FUNC_get_current_task;
+static int (*bpf_probe_write_user)(void *dst, void *src, u32 size) =
+  (void *) BPF_FUNC_probe_write_user;
+static int (*bpf_skb_change_tail)(void *ctx, u32 new_len, u64 flags) =
+  (void *) BPF_FUNC_skb_change_tail;
+static int (*bpf_skb_pull_data)(void *ctx, u32 len) =
+  (void *) BPF_FUNC_skb_pull_data;
+static int (*bpf_csum_update)(void *ctx, u16 csum) =
+  (void *) BPF_FUNC_csum_update;
+static int (*bpf_set_hash_invalid)(void *ctx) =
+  (void *) BPF_FUNC_set_hash_invalid;
+static int (*bpf_get_numa_node_id)(void) =
+  (void *) BPF_FUNC_get_numa_node_id;
+static int (*bpf_skb_change_head)(void *ctx, u32 len, u64 flags) =
+  (void *) BPF_FUNC_skb_change_head;
+static int (*bpf_xdp_adjust_head)(void *ctx, int offset) =
+  (void *) BPF_FUNC_xdp_adjust_head;
 
 /* llvm builtin functions that eBPF C program may use to
  * emit BPF_LD_ABS and BPF_LD_IND instructions
@@ -280,7 +310,7 @@ static inline void bpf_store_dword(void *skb, u64 off, u64 val) {
 #define MASK(_n) ((_n) < 64 ? (1ull << (_n)) - 1 : ((u64)-1LL))
 #define MASK128(_n) ((_n) < 128 ? ((unsigned __int128)1 << (_n)) - 1 : ((unsigned __int128)-1))
 
-static unsigned int bpf_log2(unsigned int v)
+static inline unsigned int bpf_log2(unsigned int v)
 {
   unsigned int r;
   unsigned int shift;
@@ -293,7 +323,7 @@ static unsigned int bpf_log2(unsigned int v)
   return r;
 }
 
-static unsigned int bpf_log2l(unsigned long v)
+static inline unsigned int bpf_log2l(unsigned long v)
 {
   unsigned int hi = v >> 32;
   if (hi)
@@ -448,6 +478,18 @@ int bpf_usdt_readarg_p(int argc, struct pt_regs *ctx, void *buf, u64 len) asm("l
 #define PT_REGS_RC(ctx)		((ctx)->ax)
 #define PT_REGS_IP(ctx)		((ctx)->ip)
 #define PT_REGS_SP(ctx)		((ctx)->sp)
+#elif defined(__aarch64__)
+#define PT_REGS_PARM1(x)	((x)->regs[0])
+#define PT_REGS_PARM2(x)	((x)->regs[1])
+#define PT_REGS_PARM3(x)	((x)->regs[2])
+#define PT_REGS_PARM4(x)	((x)->regs[3])
+#define PT_REGS_PARM5(x)	((x)->regs[4])
+#define PT_REGS_PARM6(x)	((x)->regs[5])
+#define PT_REGS_RET(x)		((x)->regs[30])
+#define PT_REGS_FP(x)		((x)->regs[29]) /*  Works only with CONFIG_FRAME_POINTER */
+#define PT_REGS_RC(x)		((x)->regs[0])
+#define PT_REGS_SP(x)		((x)->sp)
+#define PT_REGS_IP(x)		((x)->pc)
 #else
 #error "bcc does not support this platform yet"
 #endif
@@ -456,6 +498,19 @@ int bpf_usdt_readarg_p(int argc, struct pt_regs *ctx, void *buf, u64 len) asm("l
 
 #define TRACEPOINT_PROBE(category, event) \
 int tracepoint__##category##__##event(struct tracepoint__##category##__##event *args)
+
+#define TP_DATA_LOC_READ_CONST(dst, field, length)                        \
+        do {                                                              \
+            short __offset = args->data_loc_##field & 0xFFFF;             \
+            bpf_probe_read((void *)dst, length, (char *)args + __offset); \
+        } while (0);
+
+#define TP_DATA_LOC_READ(dst, field)                                        \
+        do {                                                                \
+            short __offset = args->data_loc_##field & 0xFFFF;               \
+            short __length = args->data_loc_##field >> 16;                  \
+            bpf_probe_read((void *)dst, __length, (char *)args + __offset); \
+        } while (0);
 
 #endif
 )********"

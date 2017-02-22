@@ -24,7 +24,7 @@ enum bpf_prog_type {
   BPF_PROG_TYPE_SCHED_ACT,
 };
 
-int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries);
+int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries, int map_flags);
 int bpf_update_elem(int fd, void *key, void *value, unsigned long long flags);
 int bpf_lookup_elem(int fd, void *key, void *value);
 int bpf_delete_elem(int fd, void *key);
@@ -40,13 +40,19 @@ int bpf_open_raw_sock(const char *name);
 typedef void (*perf_reader_cb)(void *cb_cookie, int pid, uint64_t callchain_num, void *callchain);
 typedef void (*perf_reader_raw_cb)(void *cb_cookie, void *raw, int raw_size);
 
-void * bpf_attach_kprobe(int progfd, const char *event, const char *event_desc,
-  int pid, int cpu, int group_fd, perf_reader_cb cb, void *cb_cookie);
-int bpf_detach_kprobe(const char *event_desc);
+void * bpf_attach_kprobe(int progfd, int attach_type, const char *ev_name,
+                        const char *fn_name,
+                        int pid, int cpu, int group_fd,
+                        perf_reader_cb cb, void *cb_cookie);
 
-void * bpf_attach_uprobe(int progfd, const char *event, const char *event_desc,
-  int pid, int cpu, int group_fd, perf_reader_cb cb, void *cb_cookie);
-int bpf_detach_uprobe(const char *event_desc);
+int bpf_detach_kprobe(const char *ev_name);
+
+void * bpf_attach_uprobe(int progfd, int attach_type, const char *ev_name,
+                        const char *binary_path, uint64_t offset,
+                        int pid, int cpu, int group_fd,
+                        perf_reader_cb cb, void *cb_cookie);
+
+int bpf_detach_uprobe(const char *ev_name);
 
 void * bpf_open_perf_buffer(perf_reader_raw_cb raw_cb, void *cb_cookie, int pid, int cpu);
 ]]
@@ -72,6 +78,8 @@ int bpf_table_type(void *program, const char *table_name);
 int bpf_table_type_id(void *program, size_t id);
 size_t bpf_table_max_entries(void *program, const char *table_name);
 size_t bpf_table_max_entries_id(void *program, size_t id);
+int bpf_table_flags(void *program, const char *table_name);
+int bpf_table_flags_id(void *program, size_t id);
 const char * bpf_table_name(void *program, size_t id);
 const char * bpf_table_key_desc(void *program, const char *table_name);
 const char * bpf_table_key_desc_id(void *program, size_t id);
@@ -107,7 +115,8 @@ struct bcc_symbol {
 };
 
 int bcc_resolve_symname(const char *module, const char *symname, const uint64_t addr,
-		struct bcc_symbol *sym);
+		int pid, struct bcc_symbol *sym);
+void bcc_procutils_free(const char *ptr);
 void *bcc_symcache_new(int pid);
 int bcc_symcache_resolve(void *symcache, uint64_t addr, struct bcc_symbol *sym);
 void bcc_symcache_refresh(void *resolver);

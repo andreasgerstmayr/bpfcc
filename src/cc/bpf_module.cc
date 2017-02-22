@@ -44,7 +44,7 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm-c/Transforms/IPO.h>
 
-#include "exception.h"
+#include "bcc_exception.h"
 #include "frontends/b/loader.h"
 #include "frontends/clang/loader.h"
 #include "frontends/clang/b_frontend_action.h"
@@ -118,8 +118,11 @@ BPFModule::~BPFModule() {
   ctx_.reset();
   if (tables_) {
     for (auto table : *tables_) {
-      if (table.is_shared)
+      if (table.is_shared) {
         SharedTables::instance()->remove_fd(table.name);
+      } else if (!table.is_extern) {
+        close(table.fd);
+      }
     }
   }
 }
@@ -342,7 +345,8 @@ int BPFModule::load_includes(const string &text) {
 
 int BPFModule::annotate() {
   for (auto fn = mod_->getFunctionList().begin(); fn != mod_->getFunctionList().end(); ++fn)
-    fn->addFnAttr(Attribute::AlwaysInline);
+    if (!fn->hasFnAttribute(Attribute::NoInline))
+      fn->addFnAttr(Attribute::AlwaysInline);
 
   // separate module to hold the reader functions
   auto m = make_unique<Module>("sscanf", *ctx_);
@@ -538,6 +542,15 @@ size_t BPFModule::table_max_entries(const string &name) const {
 size_t BPFModule::table_max_entries(size_t id) const {
   if (id >= tables_->size()) return 0;
   return (*tables_)[id].max_entries;
+}
+
+int BPFModule::table_flags(const string &name) const {
+  return table_flags(table_id(name));
+}
+
+int BPFModule::table_flags(size_t id) const {
+  if (id >= tables_->size()) return -1;
+  return (*tables_)[id].flags;
 }
 
 const char * BPFModule::table_name(size_t id) const {

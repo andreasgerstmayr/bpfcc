@@ -62,7 +62,7 @@ bool KSyms::resolve_addr(uint64_t addr, struct bcc_symbol *sym) {
   auto it = std::upper_bound(syms_.begin(), syms_.end(), Symbol("", addr)) - 1;
   sym->name = (*it).name.c_str();
   sym->demangle_name = sym->name;
-  sym->module = "[kernel]";
+  sym->module = "kernel";
   sym->offset = addr - (*it).addr;
   return true;
 }
@@ -140,16 +140,17 @@ bool ProcSyms::resolve_name(const char *module, const char *name,
   return false;
 }
 
+ProcSyms::Module::Module(const char *name, uint64_t start, uint64_t end)
+  : name_(name), start_(start), end_(end) {
+  is_so_ = bcc_elf_is_shared_obj(name) == 1;
+}
+
 int ProcSyms::Module::_add_symbol(const char *symname, uint64_t start,
                                   uint64_t end, int flags, void *p) {
   Module *m = static_cast<Module *>(p);
   auto res = m->symnames_.emplace(symname);
   m->syms_.emplace_back(&*(res.first), start, end, flags);
   return 0;
-}
-
-bool ProcSyms::Module::is_so() const {
-  return strstr(name_.c_str(), ".so") != nullptr;
 }
 
 bool ProcSyms::Module::is_perf_map() const {
@@ -212,16 +213,23 @@ void *bcc_symcache_new(int pid) {
   return static_cast<void *>(new ProcSyms(pid));
 }
 
+void bcc_free_symcache(void *symcache, int pid) {
+  if (pid < 0)
+    delete static_cast<KSyms*>(symcache);
+  else
+    delete static_cast<ProcSyms*>(symcache);
+}
+
 int bcc_symcache_resolve(void *resolver, uint64_t addr,
                          struct bcc_symbol *sym) {
   SymbolCache *cache = static_cast<SymbolCache *>(resolver);
   return cache->resolve_addr(addr, sym) ? 0 : -1;
 }
 
-int bcc_symcache_resolve_name(void *resolver, const char *name,
-                              uint64_t *addr) {
+int bcc_symcache_resolve_name(void *resolver, const char *module,
+                              const char *name, uint64_t *addr) {
   SymbolCache *cache = static_cast<SymbolCache *>(resolver);
-  return cache->resolve_name(nullptr, name, addr) ? 0 : -1;
+  return cache->resolve_name(module, name, addr) ? 0 : -1;
 }
 
 void bcc_symcache_refresh(void *resolver) {
@@ -270,8 +278,34 @@ int bcc_find_symbol_addr(struct bcc_symbol *sym) {
   return bcc_elf_foreach_sym(sym->module, _find_sym, sym);
 }
 
+struct sym_search_t {
+  struct bcc_symbol *syms;
+  int start;
+  int requested;
+  int *actual;
+};
+
+// see <elf.h>
+#define ELF_TYPE_IS_FUNCTION(flags) (((flags) & 0xf) == 2)
+
+static int _list_sym(const char *symname, uint64_t addr, uint64_t end,
+                     int flags, void *payload) {
+  if (!ELF_TYPE_IS_FUNCTION(flags) || addr == 0)
+    return 0;
+
+  SYM_CB cb = (SYM_CB) payload;
+  return cb(symname, addr);
+}
+
+int bcc_foreach_symbol(const char *module, SYM_CB cb) {
+  if (module == 0 || cb == 0)
+    return -1;
+
+  return bcc_elf_foreach_sym(module, _list_sym, (void *)cb);
+}
+
 int bcc_resolve_symname(const char *module, const char *symname,
-                        const uint64_t addr, struct bcc_symbol *sym) {
+                        const uint64_t addr, int pid, struct bcc_symbol *sym) {
   uint64_t load_addr;
 
   sym->module = NULL;
@@ -282,9 +316,9 @@ int bcc_resolve_symname(const char *module, const char *symname,
     return -1;
 
   if (strchr(module, '/')) {
-    sym->module = module;
+    sym->module = strdup(module);
   } else {
-    sym->module = bcc_procutils_which_so(module);
+    sym->module = bcc_procutils_which_so(module, pid);
   }
 
   if (sym->module == NULL)

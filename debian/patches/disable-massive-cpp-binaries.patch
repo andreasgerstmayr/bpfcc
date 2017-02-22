@@ -1,0 +1,14 @@
+For now, disable cpp binaries. They are terribly huge.
+Index: bpfcc/examples/CMakeLists.txt
+===================================================================
+--- bpfcc.orig/examples/CMakeLists.txt	2017-02-22 14:39:11.205574990 +0530
++++ bpfcc/examples/CMakeLists.txt	2017-02-22 15:11:50.144543232 +0530
+@@ -1,7 +1,7 @@
+ set(EXAMPLE_PROGRAMS hello_world.py)
+ install(PROGRAMS ${EXAMPLE_PROGRAMS} DESTINATION share/bcc/examples)
+ 
+-add_subdirectory(cpp)
++#add_subdirectory(cpp)
+ add_subdirectory(lua)
+ add_subdirectory(networking)
+ add_subdirectory(tracing)

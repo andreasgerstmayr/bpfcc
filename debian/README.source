@@ -1,0 +1,2 @@
+The following example command may be used to checkout the sources:
+git archive --format=tar.gz --prefix=bpfcc-0.2.0+git0.9c3c5172/ 9c3c5172 > /tmp/bpfcc-0.2.0+git0.9c3c5172.tar.gz

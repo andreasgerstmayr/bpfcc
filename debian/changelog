@@ -1,3 +1,14 @@
+bpfcc (0.2.0+git0.02884a026-1) unstable; urgency=medium
+
+  * [06cde45] Add Vcs URLs
+  * [d315114] New upstream version 0.2.0+git0.02884a026
+  * [a82a0d3] Add a debian/README.source file
+  * [71ecdd8] Refresh patch debian/patches/fix-install-path.patch
+  * [b907f40] Don't ship cpp binaries.
+    debian/patches/disable-massive-cpp-binaries.patch
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Wed, 22 Feb 2017 15:14:39 +0530
+
 bpfcc (0.2.0-2) unstable; urgency=medium
 
   * [d33527e] Add libfl-dev to build dependency

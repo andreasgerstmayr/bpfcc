@@ -1,3 +1,10 @@
+bpfcc (0.2.0+git0.02884a026-2) unstable; urgency=medium
+
+  * Restrict architecture support for Lua (Closes: 864724)
+  * Run wrap-and-sort
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Wed, 14 Jun 2017 10:02:47 +0545
+
 bpfcc (0.2.0+git0.02884a026-1) unstable; urgency=medium
 
   * [06cde45] Add Vcs URLs

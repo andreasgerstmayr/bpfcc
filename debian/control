@@ -3,14 +3,31 @@ Maintainer: Ritesh Raj Sarraf <rrs@debian.org>
 Section: misc
 Priority: optional
 Standards-Version: 3.9.8
-Build-Depends: debhelper (>= 9), cmake, llvm-dev, libclang-dev, libelf-dev, bison, flex, libfl-dev, libedit-dev, clang-format, python-netaddr, python-pyroute2, luajit [amd64 armel armhf i386 mips mipsel powerpc], libluajit-5.1-dev, libzip-dev, dpkg-dev (>= 1.16.1~), dh-python, python:any | python-all:any | python-dev:any | python-all-dev:any
+Build-Depends: bison,
+               clang-format,
+               cmake,
+               debhelper (>= 9),
+               dh-python,
+               dpkg-dev (>= 1.16.1~),
+               flex,
+               libclang-dev,
+               libedit-dev,
+               libelf-dev,
+               libfl-dev,
+               libluajit-5.1-dev,
+               libzip-dev,
+               llvm-dev,
+               luajit [amd64 armel armhf i386 mips mipsel powerpc],
+               python-netaddr,
+               python-pyroute2,
+               python:any | python-all:any | python-dev:any | python-all-dev:any
 Homepage: https://github.com/iovisor/bcc
 Vcs-Git: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 Vcs-Browser: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 
 Package: libbpfcc
 Architecture: linux-any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: shared library for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs
@@ -49,7 +66,10 @@ Description: Python wrappers for BPF Compiler Collection (BCC)
 
 Package: bpfcc-tools
 Architecture: all
-Depends: python-bpfcc (>= ${binary:Version}), ${misc:Depends}, ${python:Depends}, python-netaddr
+Depends: python-bpfcc (>= ${binary:Version}),
+         python-netaddr,
+         ${misc:Depends},
+         ${python:Depends}
 Description: tools for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs
@@ -61,7 +81,7 @@ Description: tools for BPF Compiler Collection (BCC)
 
 Package: bpfcc-lua
 Architecture: amd64 armel armhf i386 mips mipsel powerpc
-Depends: libbpfcc (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Depends: libbpfcc (>= ${binary:Version}), ${misc:Depends}, ${shlibs:Depends}
 Description: Standalone tool to run BCC tracers written in Lua
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs

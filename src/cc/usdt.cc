@@ -63,7 +63,7 @@ bool Probe::resolve_global_address(uint64_t *global, const uint64_t addr) {
 }
 
 bool Probe::add_to_semaphore(int16_t val) {
-  assert(pid_ && attached_semaphore_);
+  assert(pid_);
 
   if (!attached_semaphore_) {
     uint64_t addr;
@@ -200,7 +200,13 @@ void Context::_each_probe(const char *binpath, const struct bcc_elf_usdt *probe,
 }
 
 int Context::_each_module(const char *modpath, uint64_t, uint64_t, void *p) {
-  bcc_elf_foreach_usdt(modpath, _each_probe, p);
+  Context *ctx = static_cast<Context *>(p);
+  // Modules may be reported multiple times if they contain more than one
+  // executable region. We are going to parse the ELF on disk anyway, so we
+  // don't need these duplicates.
+  if (ctx->modules_.insert(modpath).second /*inserted new?*/) {
+    bcc_elf_foreach_usdt(modpath, _each_probe, p);
+  }
   return 0;
 }
 

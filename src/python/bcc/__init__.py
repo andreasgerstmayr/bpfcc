@@ -71,7 +71,8 @@ class SymbolCache(object):
     def resolve_name(self, module, name):
         addr = ct.c_ulonglong()
         if lib.bcc_symcache_resolve_name(
-                    self.cache, module, name, ct.pointer(addr)) < 0:
+                    self.cache, module.encode("ascii"),
+                    name.encode("ascii"), ct.pointer(addr)) < 0:
             return -1
         return addr.value
 
@@ -116,6 +117,12 @@ class BPF(object):
     TRACEPOINT = 5
     XDP = 6
     PERF_EVENT = 7
+
+    # from xdp_action uapi/linux/bpf.h
+    XDP_ABORTED = 0
+    XDP_DROP = 1
+    XDP_PASS = 2
+    XDP_TX = 3
 
     _probe_repl = re.compile("[^a-zA-Z0-9_]")
     _sym_caches = {}
@@ -988,12 +995,12 @@ class BPF(object):
         returned. When show_module is True, the module name is also included.
         When show_offset is True, the instruction offset as a hexadecimal
         number is also included in the string.
-        
+
         A pid of less than zero will access the kernel symbol cache.
 
         Example output when both show_module and show_offset are True:
             "start_thread+0x202 [libpthread-2.24.so]"
-        
+
         Example output when both show_module and show_offset are False:
             "start_thread"
         """
@@ -1001,7 +1008,8 @@ class BPF(object):
         offset = "+0x%x" % offset if show_offset and name is not None else ""
         name = name or "[unknown]"
         name = name + offset
-        module = " [%s]" % os.path.basename(module) if show_module else ""
+        module = " [%s]" % os.path.basename(module) \
+            if show_module and module is not None else ""
         return name + module
 
     @staticmethod

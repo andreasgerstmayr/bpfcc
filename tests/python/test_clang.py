@@ -392,5 +392,35 @@ int process(struct xdp_md *ctx) {
         t = b["act"]
         self.assertEquals(len(t), 32);
 
+    def test_bpf_dins_pkt_rewrite(self):
+        text = """
+#include <bcc/proto.h>
+int dns_test(struct __sk_buff *skb) {
+    u8 *cursor = 0;
+    struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+    if(ethernet->type == ETH_P_IP) {
+        struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+        ip->src = ip->dst;
+        return 0;
+    }
+    return -1;
+}
+        """
+        b = BPF(text=text)
+
+    def test_unary_operator(self):
+        text = """
+#include <linux/fs.h>
+#include <uapi/linux/ptrace.h>
+int trace_read_entry(struct pt_regs *ctx, struct file *file) {
+    return !file->f_op->read_iter;
+}
+        """
+        b = BPF(text=text)
+        b.attach_kprobe(event="__vfs_read", fn_name="trace_read_entry")
+
 if __name__ == "__main__":
     main()
+
+
+

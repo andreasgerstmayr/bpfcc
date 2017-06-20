@@ -169,10 +169,10 @@ if args.csv:
     if args.timestamp:
         print("TIME", end=",")
     print("TIMESTAMP_ns", end=",")
-    print(",".join("CPU" + str(c) for c in xrange(ncpu)), end="")
+    print(",".join("CPU" + str(c) for c in range(ncpu)), end="")
     if args.fullcsv:
         print(",", end="")
-        print(",".join("OFFSET_ns_CPU" + str(c) for c in xrange(ncpu)), end="")
+        print(",".join("OFFSET_ns_CPU" + str(c) for c in range(ncpu)), end="")
     print()
 else:
     print(("Sampling run queues... Output every %s seconds. " +
@@ -205,7 +205,7 @@ slept = float(0)
 trigger = int(0.8 * (1000000000 / frequency))
 
 # read events
-b["events"].open_perf_buffer(print_event)
+b["events"].open_perf_buffer(print_event, page_cnt=64)
 while 1:
     # allow some buffering by calling sleep(), to reduce the context switch
     # rate and lower overhead.
@@ -255,10 +255,10 @@ while 1:
                     if args.timestamp:
                         print("%-8s" % strftime("%H:%M:%S"), end=",")
                     print("%d" % g_time, end=",")
-                    print(",".join(str(lens[c]) for c in xrange(ncpu)), end="")
+                    print(",".join(str(lens[c]) for c in range(ncpu)), end="")
                     if args.fullcsv:
                         print(",", end="")
-                        print(",".join(str(offs[c]) for c in xrange(ncpu)))
+                        print(",".join(str(offs[c]) for c in range(ncpu)))
                     else:
                         print()
             else:

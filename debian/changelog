@@ -1,3 +1,10 @@
+bpfcc (0.3.0-1) unstable; urgency=medium
+
+  * Restrict Lua dev package to supported architectures
+  * New upstream version 0.3.0
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Tue, 20 Jun 2017 13:07:37 +0545
+
 bpfcc (0.2.0+git0.02884a026-2) unstable; urgency=medium
 
   * Restrict architecture support for Lua (Closes: 864724)

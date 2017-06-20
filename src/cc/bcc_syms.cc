@@ -101,7 +101,11 @@ void ProcSyms::refresh() {
 int ProcSyms::_add_module(const char *modname, uint64_t start, uint64_t end,
                           void *payload) {
   ProcSyms *ps = static_cast<ProcSyms *>(payload);
-  ps->modules_.emplace_back(modname, start, end);
+  auto it = std::find_if(ps->modules_.begin(), ps->modules_.end(),
+               [=](const ProcSyms::Module &m) { return m.name_ == modname; });
+  if (it == ps->modules_.end())
+    it = ps->modules_.insert(ps->modules_.end(), modname);
+  it->ranges_.push_back(ProcSyms::Module::Range(start, end));
   return 0;
 }
 
@@ -114,15 +118,30 @@ bool ProcSyms::resolve_addr(uint64_t addr, struct bcc_symbol *sym) {
   sym->demangle_name = nullptr;
   sym->offset = 0x0;
 
+  const char *original_module = nullptr;
   for (Module &mod : modules_) {
-    if (addr >= mod.start_ && addr < mod.end_) {
+    if (mod.contains(addr)) {
       bool res = mod.find_addr(addr, sym);
       if (sym->name) {
         sym->demangle_name = abi::__cxa_demangle(sym->name, nullptr, nullptr, nullptr);
         if (!sym->demangle_name)
           sym->demangle_name = sym->name;
       }
-      return res;
+      // If we have a match, return right away. But if we don't have a match in
+      // this module, we might have a match in the perf map (even though the
+      // module itself doesn't have symbols). Wait until we see the perf map if
+      // any, but keep the original module name for reporting.
+      if (res) {
+        // If we have already seen this module, report the original name rather
+        // than the perf map name:
+        if (original_module)
+          sym->module = original_module;
+        return res;
+      } else {
+        // Record the module to which this symbol belongs, so that even if it's
+        // later found using a perf map, we still report the right module name.
+        original_module = mod.name_.c_str();
+      }
     }
   }
   return false;
@@ -140,8 +159,8 @@ bool ProcSyms::resolve_name(const char *module, const char *name,
   return false;
 }
 
-ProcSyms::Module::Module(const char *name, uint64_t start, uint64_t end)
-  : name_(name), start_(start), end_(end) {
+ProcSyms::Module::Module(const char *name)
+  : name_(name) {
   is_so_ = bcc_elf_is_shared_obj(name) == 1;
 }
 
@@ -169,12 +188,20 @@ void ProcSyms::Module::load_sym_table() {
   std::sort(syms_.begin(), syms_.end());
 }
 
+bool ProcSyms::Module::contains(uint64_t addr) const {
+  for (const auto &range : ranges_) {
+    if (addr >= range.start && addr < range.end)
+      return true;
+  }
+  return false;
+}
+
 bool ProcSyms::Module::find_name(const char *symname, uint64_t *addr) {
   load_sym_table();
 
   for (Symbol &s : syms_) {
     if (*(s.name) == symname) {
-      *addr = is_so() ? start_ + s.start : s.start;
+      *addr = is_so() ? start() + s.start : s.start;
       return true;
     }
   }
@@ -182,7 +209,7 @@ bool ProcSyms::Module::find_name(const char *symname, uint64_t *addr) {
 }
 
 bool ProcSyms::Module::find_addr(uint64_t addr, struct bcc_symbol *sym) {
-  uint64_t offset = is_so() ? (addr - start_) : addr;
+  uint64_t offset = is_so() ? (addr - start()) : addr;
 
   load_sym_table();
 
@@ -190,16 +217,34 @@ bool ProcSyms::Module::find_addr(uint64_t addr, struct bcc_symbol *sym) {
   sym->offset = offset;
 
   auto it = std::upper_bound(syms_.begin(), syms_.end(), Symbol(nullptr, offset, 0));
-  if (it != syms_.begin())
-    --it;
-  else
-    it = syms_.end();
+  if (it == syms_.begin())
+    return false;
 
-  if (it != syms_.end()
-      && offset >= it->start && offset < it->start + it->size) {
-    sym->name = it->name->c_str();
-    sym->offset = (offset - it->start);
-    return true;
+  // 'it' points to the symbol whose start address is strictly greater than
+  // the address we're looking for. Start stepping backwards as long as the
+  // current symbol is still below the desired address, and see if the end
+  // of the current symbol (start + size) is above the desired address. Once
+  // we have a matching symbol, return it. Note that simply looking at '--it'
+  // is not enough, because symbols can be nested. For example, we could be
+  // looking for offset 0x12 with the following symbols available:
+  // SYMBOL   START   SIZE    END
+  // goo      0x0     0x6     0x0 + 0x6 = 0x6
+  // foo      0x6     0x10    0x6 + 0x10 = 0x16
+  // bar      0x8     0x4     0x8 + 0x4 = 0xc
+  // baz      0x16    0x10    0x16 + 0x10 = 0x26
+  // The upper_bound lookup will return baz, and then going one symbol back
+  // brings us to bar, which does not contain offset 0x12 and is nested inside
+  // foo. Going back one more symbol brings us to foo, which contains 0x12
+  // and is a match.
+  for (--it; offset >= it->start; --it) {
+    if (offset < it->start + it->size) {
+      sym->name = it->name->c_str();
+      sym->offset = (offset - it->start);
+      return true;
+    }
+    // But don't step beyond begin()!
+    if (it == syms_.begin())
+      break;
   }
 
   return false;

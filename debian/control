@@ -3,13 +3,17 @@ Maintainer: Ritesh Raj Sarraf <rrs@debian.org>
 Section: misc
 Priority: optional
 Standards-Version: 3.9.8
-Build-Depends: bison,
+Build-Depends: arping,
+	       bison,
                clang-format,
                cmake,
                debhelper (>= 9),
                dh-python,
                dpkg-dev (>= 1.16.1~),
+               ethtool,
                flex,
+               inetutils-ping | iputils-ping,
+               iperf,
                libclang-dev,
                libedit-dev,
                libelf-dev,
@@ -18,6 +22,7 @@ Build-Depends: bison,
                llvm-dev,
                libluajit-5.1-dev [amd64 armel armhf i386 mips mipsel powerpc],
                luajit [amd64 armel armhf i386 mips mipsel powerpc],
+               netperf,
                python-netaddr,
                python-pyroute2,
                python:any | python-all:any | python-dev:any | python-all-dev:any

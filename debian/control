@@ -27,7 +27,7 @@ Vcs-Browser: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 
 Package: libbpfcc
 Architecture: linux-any
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}, linux-headers-amd64
 Description: shared library for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs

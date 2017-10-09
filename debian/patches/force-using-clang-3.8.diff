@@ -1,0 +1,11 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -16,7 +16,7 @@
+ if(NOT PYTHON_ONLY)
+ find_package(BISON)
+ find_package(FLEX)
+-find_package(LLVM REQUIRED CONFIG)
++find_package(LLVM 3.8 REQUIRED CONFIG)
+ message(STATUS "Found LLVM: ${LLVM_INCLUDE_DIRS}")
+ 
+ # clang is linked as a library, but the library path searching is

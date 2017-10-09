@@ -4,9 +4,7 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-DEBIAN_VERSION := $(shell dpkg-parsechangelog | sed -rne "s,^Version: (.*),\1,p")
-DEBIAN_REVISION := $(shell dpkg-parsechangelog | sed -rne "s,^Version: ([0-9.]+)(~|-)(.*),\3,p")
-UPSTREAM_VERSION := $(shell dpkg-parsechangelog | sed -rne "s,^Version: ([0-9.]+)(~|-)(.*),\1,p")
+include /usr/share/dpkg/pkg-info.mk
 
 CFLAGS=$(shell dpkg-buildflags --get CFLAGS) -no-pie
 CXXFLAGS=$(shell dpkg-buildflags --get CXXFLAGS) -no-pie
@@ -14,9 +12,8 @@ CXXFLAGS=$(shell dpkg-buildflags --get CXXFLAGS) -no-pie
 %:
 	dh $@ --buildsystem=cmake --parallel --with python2
 
-# FIXME: LLVM_DEFINITIONS is broken somehow in LLVM cmake upstream
 override_dh_auto_configure:
-	dh_auto_configure -- -DREVISION_LAST=$(UPSTREAM_VERSION) -DREVISION=$(UPSTREAM_VERSION) -DLLVM_DEFINITIONS="-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS" -DBCC_KERNEL_HAS_SOURCE_DIR=1
+	dh_auto_configure -- -DREVISION_LAST=$(DEB_VERSION_UPSTREAM) -DREVISION=$(DEB_VERSION_UPSTREAM) -DLLVM_DEFINITIONS="-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS" -DBCC_KERNEL_HAS_SOURCE_DIR=1
 
 
 override_dh_auto_install:

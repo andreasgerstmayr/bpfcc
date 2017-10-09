@@ -1,3 +1,4 @@
+For use of clang-3.8. Thanks to Damien R. for the patch
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -16,7 +16,7 @@

@@ -1,3 +1,4 @@
+Find Lua 2.1 development header files. Thanks to Damien R. for the patch
 --- a/cmake/FindLuaJIT.cmake
 +++ b/cmake/FindLuaJIT.cmake
 @@ -31,7 +31,7 @@

@@ -22,7 +22,6 @@ Build-Depends: arping,
                llvm-dev,
                libluajit-5.1-dev [amd64 armel armhf i386 mips mipsel powerpc],
                luajit [amd64 armel armhf i386 mips mipsel powerpc],
-               netperf,
                python-netaddr,
                python-pyroute2,
                python:any | python-all:any | python-dev:any | python-all-dev:any

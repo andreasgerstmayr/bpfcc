@@ -1,3 +1,10 @@
+bpfcc (0.3.0-3) unstable; urgency=medium
+
+  * Drop netperf from build dependency. It is a non-free package
+  * Don't parse debian/changelog. Instead rely on dpkg for it
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Mon, 09 Oct 2017 23:06:59 +0545
+
 bpfcc (0.3.0-2) unstable; urgency=medium
 
   * Add depends on linux headers package, which is a dependency 

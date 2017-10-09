@@ -1,3 +1,13 @@
+bpfcc (0.3.0-2) unstable; urgency=medium
+
+  * Add depends on linux headers package, which is a dependency 
+    for JIT compilation. Thanks to Damien R. (Closes: #877925)
+  * Add some more build deps
+  * Add patches to fix Lua library detection.
+    Thanks to Damien R. (Closes: #873322)
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Mon, 09 Oct 2017 17:06:19 +0545
+
 bpfcc (0.3.0-1) unstable; urgency=medium
 
   * Restrict Lua dev package to supported architectures

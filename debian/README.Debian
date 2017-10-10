@@ -4,7 +4,7 @@ have been renamed to $filename-bpfcc suffix.
 For example: execsnoop => execsnoop-bpfcc
 
 Similarly, the manpages have been renamed. This is done to accommodate
-users who would like to use perf-tools-unstable, parallely with the
+users who would like to use perf-tools-unstable, parallelly with the
 eBPF Compiler Collection Tools from the bpfcc package.
 
 Both upstreams work closely on the projects, thus the common names.

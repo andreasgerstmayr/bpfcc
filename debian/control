@@ -45,7 +45,7 @@ Description: shared library for BPF Compiler Collection (BCC)
 Package: libbpfcc-dev
 Architecture: all
 Section: libdevel
-Depends: ${misc:Depends}
+Depends: ${misc:Depends}, libbpfcc (>= ${binary:Version})
 Description: shared library for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
  kernel tracing and manipulation programs

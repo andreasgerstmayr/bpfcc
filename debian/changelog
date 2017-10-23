@@ -1,3 +1,15 @@
+bpfcc (0.3.0-4) unstable; urgency=medium
+
+  * Add dependency on library for the development package.
+    Thanks to Alexander Kurtz (Closes: #878922)
+  * Revert "Add depends on linux headers package, which is a dependency
+    for JIT"
+  * Update README.Debian with details about dependency on running
+    kernel development headers and debug package.
+    Thanks to Alexander Kurtz (Closes: #878935)
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Mon, 23 Oct 2017 22:08:02 +0530
+
 bpfcc (0.3.0-3) unstable; urgency=medium
 
   * Drop netperf from build dependency. It is a non-free package

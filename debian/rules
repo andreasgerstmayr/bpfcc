@@ -23,7 +23,7 @@ override_dh_auto_install:
 	done
 
 	for eachMan in $(CURDIR)/debian/tmp/usr/share/bcc/man/man8/* ; do \
-	    manPage=`basename $$eachMan | cut -d "." -f1`; \
+	    test -f $$eachMan && manPage=`basename $$eachMan | cut -d "." -f1`; \
 	    mv $$eachMan $(CURDIR)/debian/tmp/usr/share/bcc/man/man8/$$manPage-bpfcc.8 ; \
 	done
 

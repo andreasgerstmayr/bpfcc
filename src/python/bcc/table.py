@@ -18,7 +18,7 @@ from functools import reduce
 import multiprocessing
 import os
 
-from .libbcc import lib, _RAW_CB_TYPE
+from .libbcc import lib, _RAW_CB_TYPE, _LOST_CB_TYPE
 from .perf import Perf
 from .utils import get_online_cpus
 from .utils import get_possible_cpus
@@ -54,7 +54,7 @@ def _stars(val, val_max, width):
     return text
 
 
-def _print_log2_hist(vals, val_type):
+def _print_log2_hist(vals, val_type, strip_leading_zero):
     global stars_max
     log2_dist_max = 64
     idx_max = -1
@@ -74,15 +74,23 @@ def _print_log2_hist(vals, val_type):
         stars = int(stars_max / 2)
 
     if idx_max > 0:
-        print(header % val_type);
+        print(header % val_type)
+
     for i in range(1, idx_max + 1):
         low = (1 << i) >> 1
         high = (1 << i) - 1
         if (low == high):
             low -= 1
         val = vals[i]
-        print(body % (low, high, val, stars,
-                      _stars(val, val_max, stars)))
+
+        if strip_leading_zero:
+            if val:
+                print(body % (low, high, val, stars,
+                              _stars(val, val_max, stars)))
+                strip_leading_zero = False
+        else:
+            print(body % (low, high, val, stars,
+                          _stars(val, val_max, stars)))
 
 def _print_linear_hist(vals, val_type):
     global stars_max
@@ -245,25 +253,15 @@ class TableBase(MutableMapping):
             self[k] = self.Leaf()
 
     def __iter__(self):
-        return TableBase.Iter(self, self.Key)
+        return TableBase.Iter(self)
 
     def iter(self): return self.__iter__()
     def keys(self): return self.__iter__()
 
     class Iter(object):
-        def __init__(self, table, keytype):
-            self.Key = keytype
+        def __init__(self, table):
             self.table = table
-            k = self.Key()
-            kp = ct.pointer(k)
-            # if 0 is a valid key, try a few alternatives
-            if k in table:
-                ct.memset(kp, 0xff, ct.sizeof(k))
-                if k in table:
-                    ct.memset(kp, 0x55, ct.sizeof(k))
-                    if k in table:
-                        raise Exception("Unable to allocate iterator")
-            self.key = k
+            self.key = None
         def __iter__(self):
             return self
         def __next__(self):
@@ -275,16 +273,23 @@ class TableBase(MutableMapping):
     def next(self, key):
         next_key = self.Key()
         next_key_p = ct.pointer(next_key)
-        key_p = ct.pointer(key)
-        res = lib.bpf_get_next_key(self.map_fd,
-                ct.cast(key_p, ct.c_void_p),
-                ct.cast(next_key_p, ct.c_void_p))
+
+        if key is None:
+            res = lib.bpf_get_first_key(self.map_fd,
+                    ct.cast(next_key_p, ct.c_void_p),
+                    ct.sizeof(self.Key))
+        else:
+            key_p = ct.pointer(key)
+            res = lib.bpf_get_next_key(self.map_fd,
+                    ct.cast(key_p, ct.c_void_p),
+                    ct.cast(next_key_p, ct.c_void_p))
+
         if res < 0:
             raise StopIteration()
         return next_key
 
     def print_log2_hist(self, val_type="value", section_header="Bucket ptr",
-            section_print_fn=None, bucket_fn=None):
+            section_print_fn=None, bucket_fn=None, strip_leading_zero=None):
         """print_log2_hist(val_type="value", section_header="Bucket ptr",
                            section_print_fn=None, bucket_fn=None)
 
@@ -295,8 +300,10 @@ class TableBase(MutableMapping):
         If section_print_fn is not None, it will be passed the bucket value
         to format into a string as it sees fit. If bucket_fn is not None,
         it will be used to produce a bucket value for the histogram keys.
-        The maximum index allowed is log2_index_max (65), which will
-        accomodate any 64-bit integer in the histogram.
+        If the value of strip_leading_zero is not False, prints a histogram
+        that is omitted leading zeros from the beginning. The maximum index
+        allowed is log2_index_max (65), which will accommodate any 64-bit
+        integer in the histogram.
         """
         if isinstance(self.Key(), ct.Structure):
             tmp = {}
@@ -315,12 +322,12 @@ class TableBase(MutableMapping):
                         section_print_fn(bucket)))
                 else:
                     print("\n%s = %r" % (section_header, bucket))
-                _print_log2_hist(vals, val_type)
+                _print_log2_hist(vals, val_type, strip_leading_zero)
         else:
             vals = [0] * log2_index_max
             for k, v in self.items():
                 vals[k.value] = v.value
-            _print_log2_hist(vals, val_type)
+            _print_log2_hist(vals, val_type, strip_leading_zero)
 
     def print_linear_hist(self, val_type="value", section_header="Bucket ptr",
             section_print_fn=None, bucket_fn=None):
@@ -463,51 +470,43 @@ class ProgArray(ArrayBase):
             leaf = self.Leaf(leaf.fd)
         super(ProgArray, self).__setitem__(key, leaf)
 
+    def __delitem__(self, key):
+        key = self._normalize_key(key)
+        key_p = ct.pointer(key)
+        res = lib.bpf_delete_elem(self.map_fd, ct.cast(key_p, ct.c_void_p))
+        if res < 0:
+            raise Exception("Could not delete item")
+
 class PerfEventArray(ArrayBase):
-    class Event(object):
-        def __init__(self, typ, config):
-            self.typ = typ
-            self.config = config
-
-    HW_CPU_CYCLES                = Event(Perf.PERF_TYPE_HARDWARE, 0)
-    HW_INSTRUCTIONS              = Event(Perf.PERF_TYPE_HARDWARE, 1)
-    HW_CACHE_REFERENCES          = Event(Perf.PERF_TYPE_HARDWARE, 2)
-    HW_CACHE_MISSES              = Event(Perf.PERF_TYPE_HARDWARE, 3)
-    HW_BRANCH_INSTRUCTIONS       = Event(Perf.PERF_TYPE_HARDWARE, 4)
-    HW_BRANCH_MISSES             = Event(Perf.PERF_TYPE_HARDWARE, 5)
-    HW_BUS_CYCLES                = Event(Perf.PERF_TYPE_HARDWARE, 6)
-    HW_STALLED_CYCLES_FRONTEND   = Event(Perf.PERF_TYPE_HARDWARE, 7)
-    HW_STALLED_CYCLES_BACKEND    = Event(Perf.PERF_TYPE_HARDWARE, 8)
-    HW_REF_CPU_CYCLES            = Event(Perf.PERF_TYPE_HARDWARE, 9)
-
-    # not yet supported, wip
-    #HW_CACHE_L1D_READ        = Event(Perf.PERF_TYPE_HW_CACHE, 0<<0|0<<8|0<<16)
-    #HW_CACHE_L1D_READ_MISS   = Event(Perf.PERF_TYPE_HW_CACHE, 0<<0|0<<8|1<<16)
-    #HW_CACHE_L1D_WRITE       = Event(Perf.PERF_TYPE_HW_CACHE, 0<<0|1<<8|0<<16)
-    #HW_CACHE_L1D_WRITE_MISS  = Event(Perf.PERF_TYPE_HW_CACHE, 0<<0|1<<8|1<<16)
-    #HW_CACHE_L1D_PREF        = Event(Perf.PERF_TYPE_HW_CACHE, 0<<0|2<<8|0<<16)
-    #HW_CACHE_L1D_PREF_MISS   = Event(Perf.PERF_TYPE_HW_CACHE, 0<<0|2<<8|1<<16)
-    #HW_CACHE_L1I_READ        = Event(Perf.PERF_TYPE_HW_CACHE, 1<<0|0<<8|0<<16)
-    #HW_CACHE_L1I_READ_MISS   = Event(Perf.PERF_TYPE_HW_CACHE, 1<<0|0<<8|1<<16)
-    #HW_CACHE_L1I_WRITE       = Event(Perf.PERF_TYPE_HW_CACHE, 1<<0|1<<8|0<<16)
-    #HW_CACHE_L1I_WRITE_MISS  = Event(Perf.PERF_TYPE_HW_CACHE, 1<<0|1<<8|1<<16)
-    #HW_CACHE_L1I_PREF        = Event(Perf.PERF_TYPE_HW_CACHE, 1<<0|2<<8|0<<16)
-    #HW_CACHE_L1I_PREF_MISS   = Event(Perf.PERF_TYPE_HW_CACHE, 1<<0|2<<8|1<<16)
-    #HW_CACHE_LL_READ         = Event(Perf.PERF_TYPE_HW_CACHE, 2<<0|0<<8|0<<16)
-    #HW_CACHE_LL_READ_MISS    = Event(Perf.PERF_TYPE_HW_CACHE, 2<<0|0<<8|1<<16)
-    #HW_CACHE_LL_WRITE        = Event(Perf.PERF_TYPE_HW_CACHE, 2<<0|1<<8|0<<16)
-    #HW_CACHE_LL_WRITE_MISS   = Event(Perf.PERF_TYPE_HW_CACHE, 2<<0|1<<8|1<<16)
-    #HW_CACHE_LL_PREF         = Event(Perf.PERF_TYPE_HW_CACHE, 2<<0|2<<8|0<<16)
-    #HW_CACHE_LL_PREF_MISS    = Event(Perf.PERF_TYPE_HW_CACHE, 2<<0|2<<8|1<<16)
 
     def __init__(self, *args, **kwargs):
         super(PerfEventArray, self).__init__(*args, **kwargs)
+        self._open_key_fds = {}
+
+    def __del__(self):
+        keys = list(self._open_key_fds.keys())
+        for key in keys:
+            del self[key]
 
     def __delitem__(self, key):
-        super(PerfEventArray, self).__delitem__(key)
-        self.close_perf_buffer(key)
+        if key not in self._open_key_fds:
+            return
+        # Delete entry from the array
+        c_key = self._normalize_key(key)
+        key_p = ct.pointer(c_key)
+        lib.bpf_delete_elem(self.map_fd, ct.cast(key_p, ct.c_void_p))
+        key_id = (id(self), key)
+        if key_id in self.bpf.open_kprobes:
+            # The key is opened for perf ring buffer
+            lib.perf_reader_free(self.bpf.open_kprobes[key_id])
+            self.bpf._del_kprobe(key_id)
+            del self._cbs[key]
+        else:
+            # The key is opened for perf event read
+            lib.bpf_close_perf_event_fd(self._open_key_fds[key])
+        del self._open_key_fds[key]
 
-    def open_perf_buffer(self, callback, page_cnt=8):
+    def open_perf_buffer(self, callback, page_cnt=8, lost_cb=None):
         """open_perf_buffers(callback)
 
         Opens a set of per-cpu ring buffer to receive custom perf event
@@ -521,48 +520,38 @@ class PerfEventArray(ArrayBase):
             raise Exception("Perf buffer page_cnt must be a power of two")
 
         for i in get_online_cpus():
-            self._open_perf_buffer(i, callback, page_cnt)
+            self._open_perf_buffer(i, callback, page_cnt, lost_cb)
 
-    def _open_perf_buffer(self, cpu, callback, page_cnt):
+    def _open_perf_buffer(self, cpu, callback, page_cnt, lost_cb):
         fn = _RAW_CB_TYPE(lambda _, data, size: callback(cpu, data, size))
-        reader = lib.bpf_open_perf_buffer(fn, None, -1, cpu, page_cnt)
+        lost_fn = _LOST_CB_TYPE(lambda lost: lost_cb(lost)) if lost_cb else ct.cast(None, _LOST_CB_TYPE)
+        reader = lib.bpf_open_perf_buffer(fn, lost_fn, None, -1, cpu, page_cnt)
         if not reader:
             raise Exception("Could not open perf buffer")
         fd = lib.perf_reader_fd(reader)
         self[self.Key(cpu)] = self.Leaf(fd)
         self.bpf._add_kprobe((id(self), cpu), reader)
         # keep a refcnt
-        self._cbs[cpu] = fn
-
-    def close_perf_buffer(self, key):
-        reader = self.bpf.open_kprobes.get((id(self), key))
-        if reader:
-            lib.perf_reader_free(reader)
-            self.bpf._del_kprobe((id(self), key))
-        del self._cbs[key]
+        self._cbs[cpu] = (fn, lost_fn)
+        # The actual fd is held by the perf reader, add to track opened keys
+        self._open_key_fds[cpu] = -1
 
     def _open_perf_event(self, cpu, typ, config):
         fd = lib.bpf_open_perf_event(typ, config, -1, cpu)
         if fd < 0:
             raise Exception("bpf_open_perf_event failed")
-        try:
-            self[self.Key(cpu)] = self.Leaf(fd)
-        finally:
-            # the fd is kept open in the map itself by the kernel
-            os.close(fd)
+        self[self.Key(cpu)] = self.Leaf(fd)
+        self._open_key_fds[cpu] = fd
 
-    def open_perf_event(self, ev):
-        """open_perf_event(ev)
+    def open_perf_event(self, typ, config):
+        """open_perf_event(typ, config)
 
         Configures the table such that calls from the bpf program to
-        table.perf_read(bpf_get_smp_processor_id()) will return the hardware
+        table.perf_read(CUR_CPU_IDENTIFIER) will return the hardware
         counter denoted by event ev on the local cpu.
         """
-        if not isinstance(ev, self.Event):
-            raise Exception("argument must be an Event, got %s", type(ev))
-
         for i in get_online_cpus():
-            self._open_perf_event(i, ev.typ, ev.config)
+            self._open_perf_event(i, typ, config)
 
 
 class PerCpuHash(HashTable):
@@ -730,4 +719,3 @@ class StackTrace(TableBase):
 
     def clear(self):
         pass
-

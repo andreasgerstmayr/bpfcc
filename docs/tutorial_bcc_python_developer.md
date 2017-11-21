@@ -123,7 +123,7 @@ b = BPF(text="""
 
 BPF_HASH(last);
 
-void do_trace(struct pt_regs *ctx) {
+int do_trace(struct pt_regs *ctx) {
 	u64 ts, *tsp, delta, key = 0;
 
     // attempt to read stored timestamp
@@ -140,6 +140,7 @@ void do_trace(struct pt_regs *ctx) {
     // update stored timestamp
     ts = bpf_ktime_get_ns();
     last.update(&key, &ts);
+    return 0;
 }
 """)
 
@@ -326,7 +327,7 @@ This may be improved in future bcc versions. Eg, the Python data struct could be
 
 Rewrite sync_timing.py, from a prior lesson, to use ```BPF_PERF_OUTPUT```.
 
-### Lesson 9. bitesize.py
+### Lesson 9. bitehist.py
 
 The following tool records a histogram of disk I/O sizes. Sample output:
 
@@ -345,7 +346,7 @@ Tracing... Hit Ctrl-C to end.
      128 -> 255      : 800      |**************************************|
 ```
 
-Code is [examples/tracing/bitesize.py](../examples/tracing/bitesize.py):
+Code is [examples/tracing/bitehist.py](../examples/tracing/bitehist.py):
 
 ```Python
 from bcc import BPF
@@ -393,7 +394,7 @@ New things to learn:
 
 ### Lesson 10. disklatency.py
 
-Write a program that times disk I/O, and prints a histogram of their latency. Disk I/O instrumentation and timing can be found in the disksnoop.py program from a prior lesson, and histogram code can be found in bitesize.py from a prior lesson.
+Write a program that times disk I/O, and prints a histogram of their latency. Disk I/O instrumentation and timing can be found in the disksnoop.py program from a prior lesson, and histogram code can be found in bitehist.py from a prior lesson.
 
 ### Lesson 11. vfsreadlat.py
 
@@ -669,7 +670,7 @@ struct key_t {
   u32 curr_pid;
 };
 // map_type, key_type, leaf_type, table_name, num_entry
-BPF_TABLE("hash", struct key_t, u64, stats, 1024);
+BPF_HASH(stats, struct key_t, u64, 1024);
 // attach to finish_task_switch in kernel/sched/core.c, which has the following
 // prototype:
 //   struct rq *finish_task_switch(struct task_struct *prev)

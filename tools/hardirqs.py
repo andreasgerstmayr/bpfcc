@@ -109,7 +109,7 @@ int trace_completion(struct pt_regs *ctx)
 # code substitutions
 if args.dist:
     bpf_text = bpf_text.replace('STORE',
-        'irq_key_t key = {.slot = bpf_log2l(delta)};' +
+        'irq_key_t key = {.slot = bpf_log2l(delta / %d)};' % factor +
         'bpf_probe_read(&key.name, sizeof(key.name), name);' +
         'dist.increment(key);')
 else:
@@ -148,7 +148,7 @@ while (1):
     else:
         print("%-26s %11s" % ("HARDIRQ", "TOTAL_" + label))
         for k, v in sorted(dist.items(), key=lambda dist: dist[1].value):
-            print("%-26s %11d" % (k.name, v.value / factor))
+            print("%-26s %11d" % (k.name.decode(), v.value / factor))
     dist.clear()
 
     countdown -= 1

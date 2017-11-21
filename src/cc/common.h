@@ -18,10 +18,18 @@
 
 #include <memory>
 #include <string>
-#include <tuple>
+#include <unistd.h>
 #include <vector>
 
 namespace ebpf {
+
+// debug flags
+enum {
+  DEBUG_LLVM_IR = 0x1,
+  DEBUG_BPF = 0x2,
+  DEBUG_PREPROCESSOR = 0x4,
+  DEBUG_SOURCE = 0x8
+};
 
 template <class T, class... Args>
 typename std::enable_if<!std::is_array<T>::value, std::unique_ptr<T>>::type
@@ -32,5 +40,7 @@ make_unique(Args &&... args) {
 std::vector<int> get_online_cpus();
 
 std::vector<int> get_possible_cpus();
+
+std::string get_pid_exe(pid_t pid);
 
 }  // namespace ebpf

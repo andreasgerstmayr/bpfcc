@@ -13,30 +13,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/bpf.h>
+#include <linux/bpf_common.h>
 #include <linux/if_packet.h>
-#include <linux/pkt_cls.h>
 #include <linux/perf_event.h>
+#include <linux/pkt_cls.h>
 #include <linux/rtnetlink.h>
+#include <linux/sched.h>
 #include <linux/unistd.h>
 #include <linux/version.h>
-#include <linux/bpf_common.h>
 #include <net/ethernet.h>
 #include <net/if.h>
+#include <sched.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/resource.h>
-#include <unistd.h>
-#include <stdbool.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
+#include <linux/if_alg.h>
 
 #include "libbpf.h"
 #include "perf_reader.h"
@@ -69,9 +75,9 @@
 
 static int probe_perf_reader_page_cnt = 8;
 
-static __u64 ptr_to_u64(void *ptr)
+static uint64_t ptr_to_u64(void *ptr)
 {
-  return (__u64) (unsigned long) ptr;
+  return (uint64_t) (unsigned long) ptr;
 }
 
 int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries, int map_flags)
@@ -132,6 +138,44 @@ int bpf_delete_elem(int fd, void *key)
   return syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &attr, sizeof(attr));
 }
 
+int bpf_get_first_key(int fd, void *key, size_t key_size)
+{
+  union bpf_attr attr;
+  int i, res;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.map_fd = fd;
+  attr.key = 0;
+  attr.next_key = ptr_to_u64(key);
+
+  // 4.12 and above kernel supports passing NULL to BPF_MAP_GET_NEXT_KEY
+  // to get first key of the map. For older kernels, the call will fail.
+  res = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
+  if (res < 0 && errno == EFAULT) {
+    // Fall back to try to find a non-existing key.
+    static unsigned char try_values[3] = {0, 0xff, 0x55};
+    attr.key = ptr_to_u64(key);
+    for (i = 0; i < 3; i++) {
+      memset(key, try_values[i], key_size);
+      // We want to check the existence of the key but we don't know the size
+      // of map's value. So we pass an invalid pointer for value, expect
+      // the call to fail and check if the error is ENOENT indicating the
+      // key doesn't exist. If we use NULL for the invalid pointer, it might
+      // trigger a page fault in kernel and affect performance. Hence we use
+      // ~0 which will fail and return fast.
+      // This should fail since we pass an invalid pointer for value.
+      if (bpf_lookup_elem(fd, key, (void *)~0) >= 0)
+        return -1;
+      // This means the key doesn't exist.
+      if (errno == ENOENT)
+        return syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
+    }
+    return -1;
+  } else {
+    return res;
+  }
+}
+
 int bpf_get_next_key(int fd, void *key, void *next_key)
 {
   union bpf_attr attr;
@@ -143,7 +187,7 @@ int bpf_get_next_key(int fd, void *key, void *next_key)
   return syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
 }
 
-void bpf_print_hints(char *log)
+static void bpf_print_hints(char *log)
 {
   if (log == NULL)
     return;
@@ -175,6 +219,115 @@ void bpf_print_hints(char *log)
   }
 }
 #define ROUND_UP(x, n) (((x) + (n) - 1u) & ~((n) - 1u))
+
+int bpf_obj_get_info(int prog_map_fd, void *info, int *info_len)
+{
+  union bpf_attr attr;
+  int err;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.info.bpf_fd = prog_map_fd;
+  attr.info.info_len = *info_len;
+  attr.info.info = ptr_to_u64(info);
+
+  err = syscall(__NR_bpf, BPF_OBJ_GET_INFO_BY_FD, &attr, sizeof(attr));
+  if (!err)
+          *info_len = attr.info.info_len;
+
+  return err;
+}
+
+int bpf_prog_compute_tag(const struct bpf_insn *insns, int prog_len,
+                         unsigned long long *ptag)
+{
+  struct sockaddr_alg alg = {
+    .salg_family    = AF_ALG,
+    .salg_type      = "hash",
+    .salg_name      = "sha1",
+  };
+  int shafd = socket(AF_ALG, SOCK_SEQPACKET, 0);
+  if (shafd < 0) {
+    fprintf(stderr, "sha1 socket not available %s\n", strerror(errno));
+    return -1;
+  }
+  int ret = bind(shafd, (struct sockaddr *)&alg, sizeof(alg));
+  if (ret < 0) {
+    fprintf(stderr, "sha1 bind fail %s\n", strerror(errno));
+    close(shafd);
+    return ret;
+  }
+  int shafd2 = accept(shafd, NULL, 0);
+  if (shafd2 < 0) {
+    fprintf(stderr, "sha1 accept fail %s\n", strerror(errno));
+    close(shafd);
+    return -1;
+  }
+  struct bpf_insn prog[prog_len / 8];
+  bool map_ld_seen = false;
+  int i;
+  for (i = 0; i < prog_len / 8; i++) {
+    prog[i] = insns[i];
+    if (insns[i].code == (BPF_LD | BPF_DW | BPF_IMM) &&
+        insns[i].src_reg == BPF_PSEUDO_MAP_FD &&
+        !map_ld_seen) {
+      prog[i].imm = 0;
+      map_ld_seen = true;
+    } else if (insns[i].code == 0 && map_ld_seen) {
+      prog[i].imm = 0;
+      map_ld_seen = false;
+    } else {
+      map_ld_seen = false;
+    }
+  }
+  ret = write(shafd2, prog, prog_len);
+  if (ret != prog_len) {
+    fprintf(stderr, "sha1 write fail %s\n", strerror(errno));
+    close(shafd2);
+    close(shafd);
+    return -1;
+  }
+
+  union {
+	  unsigned char sha[20];
+	  unsigned long long tag;
+  } u = {};
+  ret = read(shafd2, u.sha, 20);
+  if (ret != 20) {
+    fprintf(stderr, "sha1 read fail %s\n", strerror(errno));
+    close(shafd2);
+    close(shafd);
+    return -1;
+  }
+  *ptag = __builtin_bswap64(u.tag);
+  return 0;
+}
+
+int bpf_prog_get_tag(int fd, unsigned long long *ptag)
+{
+  char fmt[64];
+  snprintf(fmt, sizeof(fmt), "/proc/self/fdinfo/%d", fd);
+  FILE * f = fopen(fmt, "r");
+  if (!f) {
+/*    fprintf(stderr, "failed to open fdinfo %s\n", strerror(errno));*/
+    return -1;
+  }
+  fgets(fmt, sizeof(fmt), f); // pos
+  fgets(fmt, sizeof(fmt), f); // flags
+  fgets(fmt, sizeof(fmt), f); // mnt_id
+  fgets(fmt, sizeof(fmt), f); // prog_type
+  fgets(fmt, sizeof(fmt), f); // prog_jited
+  fgets(fmt, sizeof(fmt), f); // prog_tag
+  fclose(f);
+  char *p = strchr(fmt, ':');
+  if (!p) {
+/*    fprintf(stderr, "broken fdinfo %s\n", fmt);*/
+    return -2;
+  }
+  unsigned long long tag = 0;
+  sscanf(p + 1, "%llx", &tag);
+  *ptag = tag;
+  return 0;
+}
 
 int bpf_prog_load(enum bpf_prog_type prog_type,
                   const struct bpf_insn *insns, int prog_len,
@@ -272,16 +425,21 @@ int bpf_open_raw_sock(const char *name)
 
   sock = socket(PF_PACKET, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, htons(ETH_P_ALL));
   if (sock < 0) {
-    printf("cannot create raw socket\n");
+    fprintf(stderr, "cannot create raw socket\n");
     return -1;
   }
 
   memset(&sll, 0, sizeof(sll));
   sll.sll_family = AF_PACKET;
   sll.sll_ifindex = if_nametoindex(name);
+  if (sll.sll_ifindex == 0) {
+    fprintf(stderr, "bpf: Resolving device name to index: %s\n", strerror(errno));
+    close(sock);
+    return -1;
+  }
   sll.sll_protocol = htons(ETH_P_ALL);
   if (bind(sock, (struct sockaddr *)&sll, sizeof(sll)) < 0) {
-    printf("bind to %s: %s\n", name, strerror(errno));
+    fprintf(stderr, "bind to %s: %s\n", name, strerror(errno));
     close(sock);
     return -1;
   }
@@ -345,17 +503,15 @@ static int bpf_attach_tracing_event(int progfd, const char *event_path,
 void * bpf_attach_kprobe(int progfd, enum bpf_probe_attach_type attach_type, const char *ev_name,
                         const char *fn_name,
                         pid_t pid, int cpu, int group_fd,
-                        perf_reader_cb cb, void *cb_cookie) 
+                        perf_reader_cb cb, void *cb_cookie)
 {
   int kfd;
   char buf[256];
-  char new_name[128];
+  char event_alias[128];
   struct perf_reader *reader = NULL;
   static char *event_type = "kprobe";
-  int n;
 
-  snprintf(new_name, sizeof(new_name), "%s_bcc_%d", ev_name, getpid());
-  reader = perf_reader_new(cb, NULL, cb_cookie, probe_perf_reader_page_cnt);
+  reader = perf_reader_new(cb, NULL, NULL, cb_cookie, probe_perf_reader_page_cnt);
   if (!reader)
     goto error;
 
@@ -366,8 +522,9 @@ void * bpf_attach_kprobe(int progfd, enum bpf_probe_attach_type attach_type, con
     goto error;
   }
 
-  snprintf(buf, sizeof(buf), "%c:%ss/%s %s", attach_type==BPF_PROBE_ENTRY ? 'p' : 'r', 
-			event_type, new_name, fn_name);
+  snprintf(event_alias, sizeof(event_alias), "%s_bcc_%d", ev_name, getpid());
+  snprintf(buf, sizeof(buf), "%c:%ss/%s %s", attach_type==BPF_PROBE_ENTRY ? 'p' : 'r',
+			event_type, event_alias, fn_name);
   if (write(kfd, buf, strlen(buf)) < 0) {
     if (errno == EINVAL)
       fprintf(stderr, "check dmesg output for possible cause\n");
@@ -376,24 +533,10 @@ void * bpf_attach_kprobe(int progfd, enum bpf_probe_attach_type attach_type, con
   }
   close(kfd);
 
-  if (access("/sys/kernel/debug/tracing/instances", F_OK) != -1) {
-    snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/instances/bcc_%d", getpid());
-    if (access(buf, F_OK) == -1) {
-      if (mkdir(buf, 0755) == -1) 
-        goto retry;
-    }
-    n = snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/instances/bcc_%d/events/%ss/%s", 
-             getpid(), event_type, new_name);
-    if (n < sizeof(buf) && bpf_attach_tracing_event(progfd, buf, reader, pid, cpu, group_fd) == 0)
-	  goto out;
-    snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/instances/bcc_%d", getpid());
-    rmdir(buf);
-  }
-retry:
-  snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/events/%ss/%s", event_type, new_name);
+  snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/events/%ss/%s", event_type, event_alias);
   if (bpf_attach_tracing_event(progfd, buf, reader, pid, cpu, group_fd) < 0)
     goto error;
-out:
+
   return reader;
 
 error:
@@ -402,20 +545,79 @@ error:
 
 }
 
+static int enter_mount_ns(int pid) {
+  struct stat self_stat, target_stat;
+  int self_fd = -1, target_fd = -1;
+  char buf[64];
+
+  if (pid < 0)
+    return -1;
+
+  if ((size_t)snprintf(buf, sizeof(buf), "/proc/%d/ns/mnt", pid) >= sizeof(buf))
+    return -1;
+
+  self_fd = open("/proc/self/ns/mnt", O_RDONLY);
+  if (self_fd < 0) {
+    perror("open(/proc/self/ns/mnt)");
+    return -1;
+  }
+
+  target_fd = open(buf, O_RDONLY);
+  if (target_fd < 0) {
+    perror("open(/proc/<pid>/ns/mnt)");
+    goto error;
+  }
+
+  if (fstat(self_fd, &self_stat)) {
+    perror("fstat(self_fd)");
+    goto error;
+  }
+
+  if (fstat(target_fd, &target_stat)) {
+    perror("fstat(target_fd)");
+    goto error;
+  }
+
+  // both target and current ns are same, avoid setns and close all fds
+  if (self_stat.st_ino == target_stat.st_ino)
+    goto error;
+
+  if (setns(target_fd, CLONE_NEWNS)) {
+    perror("setns(target)");
+    goto error;
+  }
+
+  close(target_fd);
+  return self_fd;
+
+error:
+  if (self_fd >= 0)
+    close(self_fd);
+  if (target_fd >= 0)
+    close(target_fd);
+  return -1;
+}
+
+static void exit_mount_ns(int fd) {
+  if (fd < 0)
+    return;
+
+  if (setns(fd, CLONE_NEWNS))
+    perror("setns");
+}
+
 void * bpf_attach_uprobe(int progfd, enum bpf_probe_attach_type attach_type, const char *ev_name,
                         const char *binary_path, uint64_t offset,
                         pid_t pid, int cpu, int group_fd,
-                        perf_reader_cb cb, void *cb_cookie) 
+                        perf_reader_cb cb, void *cb_cookie)
 {
-  int kfd;
   char buf[PATH_MAX];
-  char new_name[128];
+  char event_alias[PATH_MAX];
   struct perf_reader *reader = NULL;
   static char *event_type = "uprobe";
-  int n;
+  int res, kfd = -1, ns_fd = -1;
 
-  snprintf(new_name, sizeof(new_name), "%s_bcc_%d", ev_name, getpid());
-  reader = perf_reader_new(cb, NULL, cb_cookie, probe_perf_reader_page_cnt);
+  reader = perf_reader_new(cb, NULL, NULL, cb_cookie, probe_perf_reader_page_cnt);
   if (!reader)
     goto error;
 
@@ -426,63 +628,75 @@ void * bpf_attach_uprobe(int progfd, enum bpf_probe_attach_type attach_type, con
     goto error;
   }
 
-  n = snprintf(buf, sizeof(buf), "%c:%ss/%s %s:0x%lx", attach_type==BPF_PROBE_ENTRY ? 'p' : 'r', 
-			event_type, new_name, binary_path, offset);
-  if (n >= sizeof(buf)) {
-    close(kfd);
+  res = snprintf(event_alias, sizeof(event_alias), "%s_bcc_%d", ev_name, getpid());
+  if (res < 0 || res >= sizeof(event_alias)) {
+    fprintf(stderr, "Event name (%s) is too long for buffer\n", ev_name);
     goto error;
   }
+  res = snprintf(buf, sizeof(buf), "%c:%ss/%s %s:0x%lx", attach_type==BPF_PROBE_ENTRY ? 'p' : 'r',
+			event_type, event_alias, binary_path, offset);
+  if (res < 0 || res >= sizeof(buf)) {
+    fprintf(stderr, "Event alias (%s) too long for buffer\n", event_alias);
+    goto error;
+  }
+
+  ns_fd = enter_mount_ns(pid);
   if (write(kfd, buf, strlen(buf)) < 0) {
     if (errno == EINVAL)
       fprintf(stderr, "check dmesg output for possible cause\n");
-    close(kfd);
     goto error;
   }
   close(kfd);
+  exit_mount_ns(ns_fd);
+  ns_fd = -1;
 
-  snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/events/%ss/%s", event_type, new_name);
+  snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/events/%ss/%s", event_type, event_alias);
   if (bpf_attach_tracing_event(progfd, buf, reader, pid, cpu, group_fd) < 0)
     goto error;
 
   return reader;
 
 error:
+  if (kfd >= 0)
+    close(kfd);
+  exit_mount_ns(ns_fd);
   perf_reader_free(reader);
   return NULL;
 }
 
 static int bpf_detach_probe(const char *ev_name, const char *event_type)
 {
-  int kfd;
-  char buf[256];
+  int kfd, res;
+  char buf[PATH_MAX];
   snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/%s_events", event_type);
   kfd = open(buf, O_WRONLY | O_APPEND, 0);
   if (kfd < 0) {
     fprintf(stderr, "open(%s): %s\n", buf, strerror(errno));
-    return -1;
+    goto error;
   }
 
-  snprintf(buf, sizeof(buf), "-:%ss/%s_bcc_%d", event_type, ev_name, getpid());
+  res = snprintf(buf, sizeof(buf), "-:%ss/%s_bcc_%d", event_type, ev_name, getpid());
+  if (res < 0 || res >= sizeof(buf)) {
+    fprintf(stderr, "snprintf(%s): %d\n", ev_name, res);
+    goto error;
+  }
   if (write(kfd, buf, strlen(buf)) < 0) {
     fprintf(stderr, "write(%s): %s\n", buf, strerror(errno));
-    close(kfd);
-    return -1;
+    goto error;
   }
-  close(kfd);
 
+  close(kfd);
   return 0;
+
+error:
+  if (kfd >= 0)
+    close(kfd);
+  return -1;
 }
 
 int bpf_detach_kprobe(const char *ev_name)
 {
-  char buf[256];
-  int ret = bpf_detach_probe(ev_name, "kprobe");
-  snprintf(buf, sizeof(buf), "/sys/kernel/debug/tracing/instances/bcc_%d", getpid());
-  if (access(buf, F_OK) != -1) {
-    rmdir(buf);
-  }
-
-  return ret;
+  return bpf_detach_probe(ev_name, "kprobe");
 }
 
 int bpf_detach_uprobe(const char *ev_name)
@@ -497,7 +711,7 @@ void * bpf_attach_tracepoint(int progfd, const char *tp_category,
   char buf[256];
   struct perf_reader *reader = NULL;
 
-  reader = perf_reader_new(cb, NULL, cb_cookie, probe_perf_reader_page_cnt);
+  reader = perf_reader_new(cb, NULL, NULL, cb_cookie, probe_perf_reader_page_cnt);
   if (!reader)
     goto error;
 
@@ -519,13 +733,14 @@ int bpf_detach_tracepoint(const char *tp_category, const char *tp_name) {
   return 0;
 }
 
-void * bpf_open_perf_buffer(perf_reader_raw_cb raw_cb, void *cb_cookie, int pid,
-    int cpu, int page_cnt) {
+void * bpf_open_perf_buffer(perf_reader_raw_cb raw_cb,
+                            perf_reader_lost_cb lost_cb, void *cb_cookie,
+                            int pid, int cpu, int page_cnt) {
   int pfd;
   struct perf_event_attr attr = {};
   struct perf_reader *reader = NULL;
 
-  reader = perf_reader_new(NULL, raw_cb, cb_cookie, page_cnt);
+  reader = perf_reader_new(NULL, raw_cb, lost_cb, cb_cookie, page_cnt);
   if (!reader)
     goto error;
 
@@ -559,9 +774,31 @@ error:
   return NULL;
 }
 
+static int invalid_perf_config(uint32_t type, uint64_t config) {
+  switch (type) {
+    case PERF_TYPE_HARDWARE:
+      return config >= PERF_COUNT_HW_MAX;
+    case PERF_TYPE_SOFTWARE:
+      return config >= PERF_COUNT_SW_MAX;
+    case PERF_TYPE_RAW:
+      return 0;
+    default:
+      return 1;
+  }
+}
+
 int bpf_open_perf_event(uint32_t type, uint64_t config, int pid, int cpu) {
   int fd;
   struct perf_event_attr attr = {};
+
+  if (type != PERF_TYPE_HARDWARE && type != PERF_TYPE_RAW) {
+    fprintf(stderr, "Unsupported perf event type\n");
+    return -1;
+  }
+  if (invalid_perf_config(type, config)) {
+    fprintf(stderr, "Invalid perf event config\n");
+    return -1;
+  }
 
   attr.sample_period = LONG_MAX;
   attr.type = type;
@@ -582,7 +819,7 @@ int bpf_open_perf_event(uint32_t type, uint64_t config, int pid, int cpu) {
   return fd;
 }
 
-int bpf_attach_xdp(const char *dev_name, int progfd) {
+int bpf_attach_xdp(const char *dev_name, int progfd, uint32_t flags) {
     struct sockaddr_nl sa;
     int sock, seq = 0, len, ret = -1;
     char buf[4096];
@@ -594,6 +831,7 @@ int bpf_attach_xdp(const char *dev_name, int progfd) {
     } req;
     struct nlmsghdr *nh;
     struct nlmsgerr *err;
+    socklen_t addrlen;
 
     memset(&sa, 0, sizeof(sa));
     sa.nl_family = AF_NETLINK;
@@ -606,6 +844,17 @@ int bpf_attach_xdp(const char *dev_name, int progfd) {
 
     if (bind(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
         fprintf(stderr, "bpf: bind to netlink: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
+    addrlen = sizeof(sa);
+    if (getsockname(sock, (struct sockaddr *)&sa, &addrlen) < 0) {
+        fprintf(stderr, "bpf: get sock name of netlink: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
+    if (addrlen != sizeof(sa)) {
+        fprintf(stderr, "bpf: wrong netlink address length: %d\n", addrlen);
         goto cleanup;
     }
 
@@ -627,12 +876,22 @@ int bpf_attach_xdp(const char *dev_name, int progfd) {
     nla->nla_type = NLA_F_NESTED | 43/*IFLA_XDP*/;
 
     nla_xdp = (struct nlattr *)((char *)nla + NLA_HDRLEN);
+    nla->nla_len = NLA_HDRLEN;
 
     // we specify the FD passed over by the user
     nla_xdp->nla_type = 1/*IFLA_XDP_FD*/;
-    nla_xdp->nla_len = NLA_HDRLEN + sizeof(int);
+    nla_xdp->nla_len = NLA_HDRLEN + sizeof(progfd);
     memcpy((char *)nla_xdp + NLA_HDRLEN, &progfd, sizeof(progfd));
-    nla->nla_len = NLA_HDRLEN + nla_xdp->nla_len;
+    nla->nla_len += nla_xdp->nla_len;
+
+    // parse flags as passed by the user
+    if (flags) {
+        nla_xdp = (struct nlattr *)((char *)nla + nla->nla_len);
+        nla_xdp->nla_type = 3/*IFLA_XDP_FLAGS*/;
+        nla_xdp->nla_len = NLA_HDRLEN + sizeof(flags);
+        memcpy((char *)nla_xdp + NLA_HDRLEN, &flags, sizeof(flags));
+        nla->nla_len += nla_xdp->nla_len;
+    }
 
     req.nh.nlmsg_len += NLA_ALIGN(nla->nla_len);
 
@@ -649,9 +908,9 @@ int bpf_attach_xdp(const char *dev_name, int progfd) {
 
     for (nh = (struct nlmsghdr *)buf; NLMSG_OK(nh, len);
          nh = NLMSG_NEXT(nh, len)) {
-        if (nh->nlmsg_pid != getpid()) {
-            fprintf(stderr, "bpf: Wrong pid %d, expected %d\n",
-                   nh->nlmsg_pid, getpid());
+        if (nh->nlmsg_pid != sa.nl_pid) {
+            fprintf(stderr, "bpf: Wrong pid %u, expected %u\n",
+                   nh->nlmsg_pid, sa.nl_pid);
             errno = EBADMSG;
             goto cleanup;
         }
@@ -688,8 +947,7 @@ int bpf_attach_perf_event(int progfd, uint32_t ev_type, uint32_t ev_config,
     fprintf(stderr, "Unsupported perf event type\n");
     return -1;
   }
-  if ((ev_type == PERF_TYPE_HARDWARE && ev_config >= PERF_COUNT_HW_MAX) ||
-      (ev_type == PERF_TYPE_SOFTWARE && ev_config >= PERF_COUNT_SW_MAX)) {
+  if (invalid_perf_config(ev_type, ev_config)) {
     fprintf(stderr, "Invalid perf event config\n");
     return -1;
   }
@@ -732,27 +990,40 @@ int bpf_attach_perf_event(int progfd, uint32_t ev_type, uint32_t ev_config,
   return fd;
 }
 
-int bpf_detach_perf_event(uint32_t ev_type, uint32_t ev_config) {
-  // Right now, there is nothing to do, but it's a good idea to encourage
-  // callers to detach anything they attach.
-  return 0;
+int bpf_close_perf_event_fd(int fd) {
+  int res, error = 0;
+  if (fd >= 0) {
+    res = ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+    if (res != 0) {
+      perror("ioctl(PERF_EVENT_IOC_DISABLE) failed");
+      error = res;
+    }
+    res = close(fd);
+    if (res != 0) {
+      perror("close perf event FD failed");
+      error = (res && !error) ? res : error;
+    }
+  }
+  return error;
 }
 
 int bpf_obj_pin(int fd, const char *pathname)
 {
-  union bpf_attr attr = {
-    .pathname = ptr_to_u64((void *)pathname),
-    .bpf_fd = fd,
-  };
+  union bpf_attr attr;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.pathname = ptr_to_u64((void *)pathname);
+  attr.bpf_fd = fd;
 
   return syscall(__NR_bpf, BPF_OBJ_PIN, &attr, sizeof(attr));
 }
 
 int bpf_obj_get(const char *pathname)
 {
-  union bpf_attr attr = {
-    .pathname = ptr_to_u64((void *)pathname),
-  };
+  union bpf_attr attr;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.pathname = ptr_to_u64((void *)pathname);
 
   return syscall(__NR_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
 }

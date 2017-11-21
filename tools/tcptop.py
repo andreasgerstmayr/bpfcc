@@ -34,6 +34,13 @@ from subprocess import call
 import ctypes as ct
 
 # arguments
+def range_check(string):
+    value = int(string)
+    if value < 1:
+        msg = "value must be stricly positive, got %d" % (value,)
+        raise argparse.ArgumentTypeError(msg)
+    return value
+
 examples = """examples:
     ./tcptop           # trace TCP send/recv by host
     ./tcptop -C        # don't clear the screen
@@ -49,15 +56,11 @@ parser.add_argument("-S", "--nosummary", action="store_true",
     help="skip system summary line")
 parser.add_argument("-p", "--pid",
     help="trace this PID only")
-parser.add_argument("interval", nargs="?", default=1,
+parser.add_argument("interval", nargs="?", default=1, type=range_check,
     help="output interval, in seconds (default 1)")
-parser.add_argument("count", nargs="?", default=99999999,
+parser.add_argument("count", nargs="?", default=-1, type=range_check,
     help="number of outputs")
 args = parser.parse_args()
-countdown = int(args.count)
-if args.interval and int(args.interval) == 0:
-    print("ERROR: interval 0. Exiting.")
-    exit()
 debug = 0
 
 # linux stats
@@ -145,6 +148,9 @@ int kprobe__tcp_cleanup_rbuf(struct pt_regs *ctx, struct sock *sk, int copied)
     u16 dport = 0, family = sk->__sk_common.skc_family;
     u64 *val, zero = 0;
 
+    if (copied <= 0)
+	    return 0;
+
     if (family == AF_INET) {
         struct ipv4_key_t ipv4_key = {.pid = pid};
         ipv4_key.saddr = sk->__sk_common.skc_rcv_saddr;
@@ -204,15 +210,13 @@ ipv6_recv_bytes = b["ipv6_recv_bytes"]
 print('Tracing... Output every %s secs. Hit Ctrl-C to end' % args.interval)
 
 # output
-exiting = 0
-while (1):
+i = 0
+exiting = False
+while i != args.count and not exiting:
     try:
-        if args.interval:
-            sleep(int(args.interval))
-        else:
-            sleep(99999999)
+        sleep(args.interval)
     except KeyboardInterrupt:
-        exiting = 1
+        exiting = True
 
     # header
     if args.noclear:
@@ -282,6 +286,4 @@ while (1):
     ipv6_send_bytes.clear()
     ipv6_recv_bytes.clear()
 
-    countdown -= 1
-    if exiting or countdown == 0:
-        exit()
+    i += 1

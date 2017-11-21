@@ -15,7 +15,7 @@ error_msg = "R0 invalid mem access 'map_value_or_null'\n"
 text = """
        #include <uapi/linux/ptrace.h>
        #include <bcc/proto.h>
-       BPF_TABLE("hash", int, int, t1, 10);
+       BPF_HASH(t1, int, int, 10);
        int sim_port(struct __sk_buff *skb) {
            int x = 0, *y;
        """
@@ -27,7 +27,7 @@ repeat = """
 end = """
            y = t1.lookup(&x);
            x = *y;
-           return 0; 
+           return 0;
         }
       """
 for i in range(0,300):
@@ -42,7 +42,7 @@ class TestBPFProgLoad(TestCase):
 
     def tearDown(self):
         self.fp.close()
-        
+
 
     def test_log_debug(self):
         b = BPF(text=text, debug=2)

@@ -4,8 +4,43 @@
 
 import os
 import subprocess
-from bcc import SymbolCache
+from bcc import SymbolCache, BPF
 from unittest import main, TestCase
+
+class TestKSyms(TestCase):
+    def grab_sym(self):
+        address = ""
+        aliases = []
+
+        # Grab the first symbol in kallsyms that has type 't' or 'T'.
+        # Also, find all aliases of this symbol which are identifiable
+        # by the same address.
+        with open("/proc/kallsyms") as f:
+            for line in f:
+
+                # Extract the first 3 columns only. The 4th column
+                # containing the module name may not exist for all
+                # symbols.
+                (addr, t, name) = line.strip().split()[:3]
+                if t == "t" or t == "T":
+                    if not address:
+                        address = addr
+                    if addr == address:
+                        aliases.append(name)
+
+        # Return all aliases of the first symbol.
+        return (address, aliases)
+
+    def test_ksymname(self):
+        sym = BPF.ksymname("__kmalloc")
+        self.assertIsNotNone(sym)
+        self.assertNotEqual(sym, 0)
+
+    def test_ksym(self):
+        (addr, aliases) = self.grab_sym()
+        sym = BPF.ksym(int(addr, 16))
+        found = sym in aliases
+        self.assertTrue(found)
 
 class Harness(TestCase):
     def setUp(self):
@@ -25,21 +60,32 @@ class Harness(TestCase):
         self.process.wait()
 
     def resolve_addr(self):
-        sym, offset, module = self.syms.resolve(self.addr)
-        self.assertEqual(sym, 'some_function')
+        sym, offset, module = self.syms.resolve(self.addr, False)
+        self.assertEqual(sym, self.mangled_name)
         self.assertEqual(offset, 0)
         self.assertTrue(module[-5:] == 'dummy')
+        sym, offset, module = self.syms.resolve(self.addr, True)
+        self.assertEqual(sym, 'some_namespace::some_function(int, int)')
+        self.assertEqual(offset, 0)
+        self.assertTrue(module[-5:] == 'dummy')
+
 
     def resolve_name(self):
         script_dir = os.path.dirname(os.path.realpath(__file__))
         addr = self.syms.resolve_name(os.path.join(script_dir, 'dummy'),
-                                      'some_function')
+                                      self.mangled_name)
         self.assertEqual(addr, self.addr)
         pass
 
 class TestDebuglink(Harness):
     def build_command(self):
-        subprocess.check_output('gcc -o dummy dummy.c'.split())
+        subprocess.check_output('g++ -o dummy dummy.cc'.split())
+        lines = subprocess.check_output('nm dummy'.split()).splitlines()
+        for line in lines:
+            if "some_function" in line:
+                self.mangled_name = line.split(' ')[2]
+                break
+        self.assertTrue(self.mangled_name)
 
     def debug_command(self):
         subprocess.check_output('objcopy --add-gnu-debuglink=dummy.debug dummy'
@@ -57,9 +103,16 @@ class TestDebuglink(Harness):
 
 class TestBuildid(Harness):
     def build_command(self):
-        subprocess.check_output(('gcc -o dummy -Xlinker ' + \
-               '--build-id=0x123456789abcdef0123456789abcdef012345678 dummy.c')
+        subprocess.check_output(('g++ -o dummy -Xlinker ' + \
+               '--build-id=0x123456789abcdef0123456789abcdef012345678 dummy.cc')
                .split())
+        lines = subprocess.check_output('nm dummy'.split()).splitlines()
+        for line in lines:
+            if "some_function" in line:
+                self.mangled_name = line.split(' ')[2]
+                break
+        self.assertTrue(self.mangled_name)
+
 
     def debug_command(self):
         subprocess.check_output('mkdir -p /usr/lib/debug/.build-id/12'.split())

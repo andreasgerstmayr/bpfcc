@@ -50,7 +50,7 @@ parser.add_argument("-t", "--timestamp", action="store_true",
 parser.add_argument("-w", "--wide", action="store_true",
     help="wide column output (fits IPv6 addresses)")
 parser.add_argument("-s", "--csv", action="store_true",
-    help="comma seperated values output")
+    help="comma separated values output")
 parser.add_argument("-p", "--pid",
     help="trace this PID only")
 parser.add_argument("-L", "--localport",
@@ -305,7 +305,7 @@ def print_ipv4_event(cpu, data, size):
             print("%.6f," % delta_s, end="")
         else:
             print("%-9.6f " % delta_s, end="")
-    print(format_string % (event.pid, event.task,
+    print(format_string % (event.pid, event.task.decode(),
         "4" if args.wide or args.csv else "",
         inet_ntop(AF_INET, pack("I", event.saddr)), event.ports >> 32,
         inet_ntop(AF_INET, pack("I", event.daddr)), event.ports & 0xffffffff,
@@ -327,7 +327,7 @@ def print_ipv6_event(cpu, data, size):
             print("%.6f," % delta_s, end="")
         else:
             print("%-9.6f " % delta_s, end="")
-    print(format_string % (event.pid, event.task,
+    print(format_string % (event.pid, event.task.decode(),
         "6" if args.wide or args.csv else "",
         inet_ntop(AF_INET6, event.saddr), event.ports >> 32,
         inet_ntop(AF_INET6, event.daddr), event.ports & 0xffffffff,

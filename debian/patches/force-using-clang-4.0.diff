@@ -6,7 +6,7 @@ For use of clang-3.8. Thanks to Damien R. for the patch
  find_package(BISON)
  find_package(FLEX)
 -find_package(LLVM REQUIRED CONFIG)
-+find_package(LLVM 3.8 REQUIRED CONFIG)
++find_package(LLVM 4.0 REQUIRED CONFIG)
  message(STATUS "Found LLVM: ${LLVM_INCLUDE_DIRS}")
  
  # clang is linked as a library, but the library path searching is

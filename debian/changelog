@@ -1,3 +1,20 @@
+bpfcc (0.4.0-1) unstable; urgency=medium
+
+  [ Edward Betts ]
+  * correct spelling mistake
+
+  [ Ritesh Raj Sarraf ]
+  * Fix FTBFS with clang 4.0.
+    Thanks to Sylvestre Ledru (Closes: 882160)
+  * New upstream version 0.4.0
+  * Disable User-level Statically Defined Tracing
+  * Fix patches
+  * Revert "Disable User-level Statically Defined Tracing"
+  * Check manpage file's existence. For now, this will only honor
+    regular manpages, and not symlinks
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Tue, 21 Nov 2017 19:16:03 +0530
+
 bpfcc (0.3.0-4) unstable; urgency=medium
 
   * Add dependency on library for the development package.

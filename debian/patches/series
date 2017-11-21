@@ -1,5 +1,3 @@
 fix-install-path.patch
 fix-uint128-build-failure.patch
-disable-massive-cpp-binaries.patch
-fix-luajit-path.diff
 force-using-clang-4.0.diff

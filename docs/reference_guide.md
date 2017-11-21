@@ -16,11 +16,12 @@ This guide is incomplete. If something feels missing, check the bcc and kernel s
         - [6. USDT probes](#6-usdt-probes)
     - [Data](#data)
         - [1. bpf_probe_read()](#1-bpf_probe_read)
-        - [2. bpf_ktime_get_ns()](#2-bpf_ktime_get_ns)
-        - [3. bpf_get_current_pid_tgid()](#3-bpf_get_current_pid_tgid)
-        - [4. bpf_get_current_uid_gid()](#4-bpf_get_current_uid_gid)
-        - [5. bpf_get_current_comm()](#5-bpf_get_current_comm)
-        - [6. bpf_log2l()](#6-bpflog2l)
+        - [2. bpf_probe_read_str()](#2-bpf_probe_read_str)
+        - [3. bpf_ktime_get_ns()](#3-bpf_ktime_get_ns)
+        - [4. bpf_get_current_pid_tgid()](#4-bpf_get_current_pid_tgid)
+        - [5. bpf_get_current_uid_gid()](#5-bpf_get_current_uid_gid)
+        - [6. bpf_get_current_comm()](#6-bpf_get_current_comm)
+        - [7. bpf_log2l()](#7-bpflog2l)
     - [Output](#output)
         - [1. bpf_trace_printk()](#1-bpf_trace_printk)
         - [2. BPF_PERF_OUTPUT](#2-bpf_perf_output)
@@ -28,16 +29,20 @@ This guide is incomplete. If something feels missing, check the bcc and kernel s
     - [Maps](#maps)
         - [1. BPF_TABLE](#1-bpf_table)
         - [2. BPF_HASH](#2-bpf_hash)
-        - [3. BPF_HISTOGRAM](#3-bpf_histogram)
-        - [4. BPF_STACK_TRACE](#4-bpf_stack_trace)
-        - [5. BPF_PERF_ARRAY](#5-bpf_perf_array)
-        - [6. map.lookup()](#6-maplookup)
-        - [7. map.lookup_or_init()](#7-maplookup_or_init)
-        - [8. map.delete()](#8-mapdelete)
-        - [9. map.update()](#9-mapupdate)
-        - [10. map.increment()](#10-mapincrement)
-        - [11. map.get_stackid()](#11-mapget_stackid)
-        - [12. map.perf_read()](#12-mapperf_read)
+        - [3. BPF_ARRAY](#3-bpf_array)
+        - [4. BPF_HISTOGRAM](#4-bpf_histogram)
+        - [5. BPF_STACK_TRACE](#5-bpf_stack_trace)
+        - [6. BPF_PERF_ARRAY](#6-bpf_perf_array)
+        - [7. BPF_PERCPU_ARRAY](#7-bpf_percpu_array)
+        - [8. BPF_LPM_TRIE](#8-bpf_lpm_trie)
+        - [9. map.lookup()](#9-maplookup)
+        - [10. map.lookup_or_init()](#10-maplookup_or_init)
+        - [11. map.delete()](#11-mapdelete)
+        - [12. map.update()](#12-mapupdate)
+        - [13. map.insert()](#13-mapinsert)
+        - [14. map.increment()](#14-mapincrement)
+        - [15. map.get_stackid()](#15-mapget_stackid)
+        - [16. map.perf_read()](#16-mapperf_read)
 
 - [bcc Python](#bcc-python)
     - [Initialization](#initialization)
@@ -137,6 +142,8 @@ This is a macro that instruments the tracepoint defined by *category*:*event*.
 
 Arguments are available in an ```args``` struct, which are the tracepoint arguments. One way to list these is to cat the relevant format file under /sys/kernel/debug/tracing/events/*category*/*event*/format.
 
+The ```args``` struct can be used in place of ``ctx`` in each functions requiring a context as an argument. This includes notably [perf_submit()](#3-perf_submit).
+
 For example:
 
 ```C
@@ -228,7 +235,7 @@ Examples in situ:
 
 ### 1. bpf_probe_read()
 
-Syntax: ```int bpf_probe_read(void *dst, int size, void *src)```
+Syntax: ```int bpf_probe_read(void *dst, int size, const void *src)```
 
 Return: 0 on success
 
@@ -238,7 +245,21 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=bpf_probe_read+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=bpf_probe_read+path%3Atools&type=Code)
 
-### 2. bpf_ktime_get_ns()
+### 2. bpf_probe_read_str()
+
+Syntax: ```int bpf_probe_read_str(void *dst, int size, const void *src)```
+
+Return:
+  - \> 0 length of the string including the trailing NUL on success
+  - \< 0 error
+
+This copies a `NULL` terminated string from memory location to BPF stack, so that BPF can later operate on it. In case the string length is smaller than size, the target is not padded with further `NULL` bytes. In case the string length is larger than size, just `size - 1` bytes are copied and the last byte is set to `NULL`.
+
+Examples in situ:
+[search /examples](https://github.com/iovisor/bcc/search?q=bpf_probe_read_str+path%3Aexamples&type=Code),
+[search /tools](https://github.com/iovisor/bcc/search?q=bpf_probe_read_str+path%3Atools&type=Code)
+
+### 3. bpf_ktime_get_ns()
 
 Syntax: ```u64 bpf_ktime_get_ns(void)```
 
@@ -248,7 +269,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=bpf_ktime_get_ns+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=bpf_ktime_get_ns+path%3Atools&type=Code)
 
-### 3. bpf_get_current_pid_tgid()
+### 4. bpf_get_current_pid_tgid()
 
 Syntax: ```u64 bpf_get_current_pid_tgid(void)```
 
@@ -260,7 +281,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=bpf_get_current_pid_tgid+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=bpf_get_current_pid_tgid+path%3Atools&type=Code)
 
-### 4. bpf_get_current_uid_gid()
+### 5. bpf_get_current_uid_gid()
 
 Syntax: ```u64 bpf_get_current_uid_gid(void)```
 
@@ -272,7 +293,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=bpf_get_current_uid_gid+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=bpf_get_current_uid_gid+path%3Atools&type=Code)
 
-### 5. bpf_get_current_comm()
+### 6. bpf_get_current_comm()
 
 Syntax: ```bpf_get_current_comm(char *buf, int size_of_buf)```
 
@@ -293,7 +314,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=bpf_get_current_comm+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=bpf_get_current_comm+path%3Atools&type=Code)
 
-### 6. bpf_log2l()
+### 7. bpf_log2l()
 
 Syntax: ```unsigned int bpf_log2l(unsigned long v)```
 
@@ -374,7 +395,7 @@ Syntax: ```BPF_TABLE(_table_type, _key_type, _leaf_type, _name, _max_entries)```
 
 Creates a map named ```_name```. Most of the time this will be used via higher-level macros, like BPF_HASH, BPF_HIST, etc.
 
-Methods (covered later): map.lookup(), map.lookup_or_init(), map.delete(), map.update(), map.increment().
+Methods (covered later): map.lookup(), map.lookup_or_init(), map.delete(), map.update(), map.insert(), map.increment().
 
 Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=BPF_TABLE+path%3Aexamples&type=Code),
@@ -396,13 +417,35 @@ BPF_HASH(start, struct request *);
 
 This creates a hash named ```start``` where the key is a ```struct request *```, and the value defaults to u64. This hash is used by the disksnoop.py example for saving timestamps for each I/O request, where the key is the pointer to struct request, and the value is the timestamp.
 
-Methods (covered later): map.lookup(), map.lookup_or_init(), map.delete(), map.update(), map.increment().
+Methods (covered later): map.lookup(), map.lookup_or_init(), map.delete(), map.update(), map.insert(), map.increment().
 
 Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=BPF_HASH+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=BPF_HASH+path%3Atools&type=Code)
 
-### 3. BPF_HISTOGRAM
+### 3. BPF_ARRAY
+
+Syntax: ```BPF_ARRAY(name [, leaf_type [, size]])```
+
+Creates an int-indexed array which is optimized for fastest lookup and update, named ```name```, with optional parameters.
+
+Defaults: ```BPF_ARRAY(name, leaf_type=u64, size=10240)```
+
+For example:
+
+```C
+BPF_ARRAY(counts, u64, 32);
+```
+
+This creates an array named ```counts``` where with 32 buckets and 64-bit integer values. This array is used by the funccount.py example for saving call count of each function.
+
+Methods (covered later): map.lookup(), map.update(), map.increment(). Note that all array elements are pre-allocated with zero values and can not be deleted.
+
+Examples in situ:
+[search /examples](https://github.com/iovisor/bcc/search?q=BPF_ARRAY+path%3Aexamples&type=Code),
+[search /tools](https://github.com/iovisor/bcc/search?q=BPF_ARRAY+path%3Atools&type=Code)
+
+### 4. BPF_HISTOGRAM
 
 Syntax: ```BPF_HISTOGRAM(name [, key_type [, size ]])```
 
@@ -424,7 +467,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=BPF_HISTOGRAM+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=BPF_HISTOGRAM+path%3Atools&type=Code)
 
-### 4. BPF_STACK_TRACE
+### 5. BPF_STACK_TRACE
 
 Syntax: ```BPF_STACK_TRACE(name, max_entries)```
 
@@ -444,7 +487,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=BPF_STACK_TRACE+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=BPF_STACK_TRACE+path%3Atools&type=Code)
 
-### 5. BPF_PERF_ARRAY
+### 6. BPF_PERF_ARRAY
 
 Syntax: ```BPF_PERF_ARRAY(name, max_entries)```
 
@@ -467,7 +510,52 @@ Methods (covered later): map.perf_read().
 Examples in situ:
 [search /tests](https://github.com/iovisor/bcc/search?q=BPF_PERF_ARRAY+path%3Atests&type=Code)
 
-### 6. map.lookup()
+### 7. BPF_PERCPU_ARRAY
+
+Syntax: ```BPF_PERCPU_ARRAY(name [, leaf_type [, size]])```
+
+Creates NUM_CPU int-indexed arrays which are optimized for fastest lookup and update, named ```name```, with optional parameters. Each CPU will have a separate copy of this array. The copies are not kept synchronized in any way.
+
+
+Defaults: ```BPF_PERCPU_ARRAY(name, leaf_type=u64, size=10240)```
+
+For example:
+
+```C
+BPF_PERCPU_ARRAY(counts, u64, 32);
+```
+
+This creates NUM_CPU arrays named ```counts``` where with 32 buckets and 64-bit integer values.
+
+Methods (covered later): map.lookup(), map.update(), map.increment(). Note that all array elements are pre-allocated with zero values and can not be deleted.
+
+Examples in situ:
+[search /examples](https://github.com/iovisor/bcc/search?q=BPF_PERCPU_ARRAY+path%3Aexamples&type=Code),
+[search /tools](https://github.com/iovisor/bcc/search?q=BPF_PERCPU_ARRAY+path%3Atools&type=Code)
+
+### 8. BPF_LPM_TRIE
+
+Syntax: `BPF_LPM_TRIE(name [, key_type [, leaf_type [, size]]])`
+
+Creates a longest prefix match trie map named `name`, with optional parameters.
+
+Defaults: `BPF_LPM_TRIE(name, key_type=u64, leaf_type=u64, size=10240)`
+
+For example:
+
+```c
+BPF_LPM_TRIE(trie, struct key_v6);
+```
+
+This creates an LPM trie map named `trie` where the key is a `struct key_v6`, and the value defaults to u64.
+
+Methods (covered later): map.lookup(), map.lookup_or_init(), map.delete(), map.update(), map.insert(), map.increment().
+
+Examples in situ:
+[search /examples](https://github.com/iovisor/bcc/search?q=BPF_LPM_TRIE+path%3Aexamples&type=Code),
+[search /tools](https://github.com/iovisor/bcc/search?q=BPF_LPM_TRIE+path%3Atools&type=Code)
+
+### 9. map.lookup()
 
 Syntax: ```*val map.lookup(&key)```
 
@@ -477,7 +565,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=lookup+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=lookup+path%3Atools&type=Code)
 
-### 7. map.lookup_or_init()
+### 10. map.lookup_or_init()
 
 Syntax: ```*val map.lookup_or_init(&key, &zero)```
 
@@ -487,7 +575,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=lookup_or_init+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=lookup_or_init+path%3Atools&type=Code)
 
-### 8. map.delete()
+### 11. map.delete()
 
 Syntax: ```map.delete(&key)```
 
@@ -497,7 +585,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=delete+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=delete+path%3Atools&type=Code)
 
-### 9. map.update()
+### 12. map.update()
 
 Syntax: ```map.update(&key, &val)```
 
@@ -507,7 +595,16 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=update+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=update+path%3Atools&type=Code)
 
-### 10. map.increment()
+### 13. map.insert()
+
+Syntax: ```map.insert(&key, &val)```
+
+Associate the value in the second argument to the key, only if there was no previous value.
+
+Examples in situ:
+[search /examples](https://github.com/iovisor/bcc/search?q=insert+path%3Aexamples&type=Code)
+
+### 14. map.increment()
 
 Syntax: ```map.increment(key)```
 
@@ -517,7 +614,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=increment+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=increment+path%3Atools&type=Code)
 
-### 11. map.get_stackid()
+### 15. map.get_stackid()
 
 Syntax: ```int map.get_stackid(void *ctx, u64 flags)```
 
@@ -527,7 +624,7 @@ Examples in situ:
 [search /examples](https://github.com/iovisor/bcc/search?q=get_stackid+path%3Aexamples&type=Code),
 [search /tools](https://github.com/iovisor/bcc/search?q=get_stackid+path%3Atools&type=Code)
 
-### 12. map.perf_read()
+### 16. map.perf_read()
 
 Syntax: ```u64 map.perf_read(u32 cpu)```
 
@@ -865,9 +962,9 @@ These are equivalent.
 
 ### 2. open_perf_buffer()
 
-Syntax: ```table.open_perf_buffers(callback, page_cnt=N)```
+Syntax: ```table.open_perf_buffers(callback, page_cnt=N, lost_cb=None)```
 
-This operates on a table as defined in BPF as BPF_PERF_OUTPUT(), and associates the callback Python function ```callback``` to be called when data is available in the perf ring buffer. This is part of the recommended mechanism for transferring per-event data from kernel to user space. The size of the perf ring buffer can be specified via the ```page_cnt``` parameter, which must be a power of two number of pages and defaults to 8.
+This operates on a table as defined in BPF as BPF_PERF_OUTPUT(), and associates the callback Python function ```callback``` to be called when data is available in the perf ring buffer. This is part of the recommended mechanism for transferring per-event data from kernel to user space. The size of the perf ring buffer can be specified via the ```page_cnt``` parameter, which must be a power of two number of pages and defaults to 8. If the callback is not processing data fast enough, some submitted data may be lost. ```lost_cb``` will be called to log / monitor the lost count. If ```lost_cb``` is the default ```None``` value, it will just print a line of message to ```stderr```.
 
 Example:
 

@@ -35,6 +35,10 @@ struct sk_buff {
 	uint32_t tc_classid;
 };
 
+struct net_off_t {
+	uint8_t  ver:4;
+} __attribute__((packed));
+
 struct eth_t {
 	uint8_t  dst[6];
 	uint8_t  src[6];
@@ -218,7 +222,7 @@ local function next_offset(e, var, type, off, mask, shift)
 	-- Finalize relative offset
 	if mask then
 		e.emit(BPF.ALU + BPF.AND + BPF.K, tmp_reg, 0, 0, mask)
-	end	
+	end
 	if shift then
 		local op = BPF.LSH
 		if shift < 0 then
@@ -275,12 +279,23 @@ M.udp     = function (...) return dissector(ffi.typeof('struct udp_t'), ...) end
 M.tcp     = function (...) return dissector(ffi.typeof('struct tcp_t'), ...) end
 M.vxlan   = function (...) return dissector(ffi.typeof('struct vxlan_t'), ...) end
 M.data    = function (...) return dissector(ffi.typeof('uint8_t'), ...) end
+M.net_off = function (...) return dissector(ffi.typeof('struct net_off_t'), ...) end
 
 -- Metatables
 ffi.metatype(ffi.typeof('struct eth_t'), {
 	__index = {
 		ip = skip_eth,
 		ip6 = skip_eth,
+		net_off = function (e, dst)
+			next_skip(e, dst, BPF.NET_OFF)
+		end,
+	}
+})
+
+ffi.metatype(ffi.typeof('struct net_off_t'), {
+	__index = {
+		ip = function () end,
+		ip6 = function () end,
 	}
 })
 

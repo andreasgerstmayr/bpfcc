@@ -34,11 +34,12 @@
 
 #include "bcc_exception.h"
 #include "codegen_llvm.h"
+#include "file_desc.h"
 #include "lexer.h"
-#include "table_desc.h"
-#include "type_helper.h"
-#include "linux/bpf.h"
 #include "libbpf.h"
+#include "linux/bpf.h"
+#include "table_storage.h"
+#include "type_helper.h"
 
 namespace ebpf {
 namespace cc {
@@ -422,7 +423,8 @@ StatusTuple CodegenLLVM::visit_string_expr_node(StringExprNode *n) {
   if (n->is_lhs()) return mkstatus_(n, "cannot assign to a string");
 
   Value *global = B.CreateGlobalString(n->val_);
-  Value *ptr = new AllocaInst(B.getInt8Ty(), B.getInt64(n->val_.size() + 1), "", resolve_entry_stack());
+  Value *ptr = make_alloca(resolve_entry_stack(), B.getInt8Ty(), "",
+                           B.getInt64(n->val_.size() + 1));
   B.CreateMemCpy(ptr, global, n->val_.size() + 1, 1);
   expr_ = ptr;
 
@@ -813,7 +815,8 @@ StatusTuple CodegenLLVM::visit_table_index_expr_node(TableIndexExprNode *n) {
 
     B.SetInsertPoint(label_then);
     // var Leaf leaf {0}
-    Value *leaf_ptr = B.CreateBitCast(new AllocaInst(leaf_type, "", resolve_entry_stack()), B.getInt8PtrTy());
+    Value *leaf_ptr = B.CreateBitCast(
+        make_alloca(resolve_entry_stack(), leaf_type), B.getInt8PtrTy());
     B.CreateMemSet(leaf_ptr, B.getInt8(0), B.getInt64(n->table_->leaf_id()->bit_width_ >> 3), 1);
     // update(key, leaf)
     B.CreateCall(update_fn, vector<Value *>({pseudo_map_fd, key_ptr, leaf_ptr, B.getInt64(BPF_NOEXIST)}));
@@ -957,7 +960,7 @@ StatusTuple CodegenLLVM::visit_struct_variable_decl_stmt_node(StructVariableDecl
   TRY2(lookup_struct_type(n, &stype, &decl));
 
   Type *ptr_stype = n->is_pointer() ? PointerType::getUnqual(stype) : (PointerType *)stype;
-  AllocaInst *ptr_a = new AllocaInst(ptr_stype, "", resolve_entry_stack());
+  AllocaInst *ptr_a = make_alloca(resolve_entry_stack(), ptr_stype);
   vars_[n] = ptr_a;
 
   if (n->struct_id_->scope_name_ == "proto") {
@@ -1011,7 +1014,8 @@ StatusTuple CodegenLLVM::visit_integer_variable_decl_stmt_node(IntegerVariableDe
     return StatusTuple(0);
 
   // uintX var = init
-  AllocaInst *ptr_a = new AllocaInst(B.getIntNTy(n->bit_width_), n->id_->name_, resolve_entry_stack());
+  AllocaInst *ptr_a = make_alloca(resolve_entry_stack(),
+                                  B.getIntNTy(n->bit_width_), n->id_->name_);
   vars_[n] = ptr_a;
 
   // todo
@@ -1172,9 +1176,9 @@ StatusTuple CodegenLLVM::visit_func_decl_stmt_node(FuncDeclStmtNode *n) {
   string scoped_entry_label = to_string((uintptr_t)fn) + "::entry";
   labels_[scoped_entry_label] = label_entry;
   BasicBlock *label_return = resolve_label("DONE");
-  retval_ = new AllocaInst(fn->getReturnType(), "ret", label_entry);
+  retval_ = make_alloca(label_entry, fn->getReturnType(), "ret");
   B.CreateStore(B.getInt32(0), retval_);
-  errval_ = new AllocaInst(B.getInt64Ty(), "err", label_entry);
+  errval_ = make_alloca(label_entry, B.getInt64Ty(), "err");
   B.CreateStore(B.getInt64(0), errval_);
 
   auto formal = n->formals_.begin();
@@ -1194,7 +1198,7 @@ StatusTuple CodegenLLVM::visit_func_decl_stmt_node(FuncDeclStmtNode *n) {
     // }
 
     // arg->setName((*formal)->id_->name_);
-    // AllocaInst *ptr = new AllocaInst(ptype, nullptr, (*formal)->id_->name_, label_entry);
+    // AllocaInst *ptr = make_alloca(label_entry, ptype, (*formal)->id_->name_);
     // B.CreateStore(arg, ptr);
     // vars_[formal->get()] = ptr;
   }
@@ -1220,7 +1224,7 @@ StatusTuple CodegenLLVM::visit_func_decl_stmt_node(FuncDeclStmtNode *n) {
   return StatusTuple(0);
 }
 
-StatusTuple CodegenLLVM::visit(Node* root, vector<TableDesc> &tables) {
+StatusTuple CodegenLLVM::visit(Node *root, TableStorage &ts, const string &id) {
   scopes_->set_current(scopes_->top_state());
   scopes_->set_current(scopes_->top_var());
 
@@ -1239,16 +1243,12 @@ StatusTuple CodegenLLVM::visit(Node* root, vector<TableDesc> &tables) {
       map_type = BPF_MAP_TYPE_HASH;
     else if (table.first->type_id()->name_ == "INDEXED")
       map_type = BPF_MAP_TYPE_ARRAY;
-    tables.push_back({
-      table.first->id_->name_,
-      table_fds_[table.first],
-      map_type,
-      table.first->key_type_->bit_width_ >> 3,
-      table.first->leaf_type_->bit_width_ >> 3,
-      table.first->size_,
-      0,
-      "", "",
-    });
+    ts.Insert(Path({id, table.first->id_->name_}),
+              {
+                  table.first->id_->name_, FileDesc(table_fds_[table.first]), map_type,
+                  table.first->key_type_->bit_width_ >> 3, table.first->leaf_type_->bit_width_ >> 3,
+                  table.first->size_, 0,
+              });
   }
   return StatusTuple(0);
 }
@@ -1320,6 +1320,24 @@ BasicBlock * CodegenLLVM::resolve_label(const string &label) {
 Instruction * CodegenLLVM::resolve_entry_stack() {
   BasicBlock *label_entry = resolve_label("entry");
   return &label_entry->back();
+}
+
+AllocaInst *CodegenLLVM::make_alloca(Instruction *Inst, Type *Ty,
+                                     const string &name, Value *ArraySize) {
+  IRBuilderBase::InsertPoint ip = B.saveIP();
+  B.SetInsertPoint(Inst);
+  AllocaInst *a = B.CreateAlloca(Ty, ArraySize, name);
+  B.restoreIP(ip);
+  return a;
+}
+
+AllocaInst *CodegenLLVM::make_alloca(BasicBlock *BB, Type *Ty,
+                                     const string &name, Value *ArraySize) {
+  IRBuilderBase::InsertPoint ip = B.saveIP();
+  B.SetInsertPoint(BB);
+  AllocaInst *a = B.CreateAlloca(Ty, ArraySize, name);
+  B.restoreIP(ip);
+  return a;
 }
 
 }  // namespace cc

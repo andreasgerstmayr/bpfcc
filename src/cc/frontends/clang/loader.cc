@@ -104,10 +104,10 @@ std::pair<bool, string> get_kernel_path_info(const string kdir)
 
 }
 
-int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDesc>> *tables,
-                       const string &file, bool in_memory, const char *cflags[], int ncflags) {
-  using namespace clang;
-
+int ClangLoader::parse(unique_ptr<llvm::Module> *mod, TableStorage &ts,
+                       const string &file, bool in_memory, const char *cflags[],
+                       int ncflags, const std::string &id, FuncSource &func_src,
+                       std::string &mod_src) {
   string main_path = "/virtual/main.c";
   unique_ptr<llvm::MemoryBuffer> main_buf;
   struct utsname un;
@@ -133,9 +133,15 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
 
   // -fno-color-diagnostics: this is a workaround for a bug in llvm terminalHasColors() as of
   // 22 Jul 2016. Also see bcc #615.
-  vector<const char *> flags_cstr({"-O0", "-emit-llvm", "-I", dstack.cwd(),
+  // Enable -O2 for clang. In clang 5.0, -O0 may result in function marking as
+  // noinline and optnone (if not always inlining).
+  // Note that first argument is ignored in clang compilation invocation.
+  vector<const char *> flags_cstr({"-O0", "-O2", "-emit-llvm", "-I", dstack.cwd(),
                                    "-Wno-deprecated-declarations",
                                    "-Wno-gnu-variable-sized-type-not-at-end",
+                                   "-Wno-pragma-once-outside-header",
+                                   "-Wno-address-of-packed-member",
+                                   "-Wno-unknown-warning-option",
                                    "-fno-color-diagnostics",
                                    "-fno-unwind-tables",
                                    "-fno-asynchronous-unwind-tables",
@@ -145,18 +151,62 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   vector<string> kflags;
   if (kbuild_helper.get_flags(un.machine, &kflags))
     return -1;
-  kflags.push_back("-include");
-  kflags.push_back("/virtual/include/bcc/bpf.h");
-  kflags.push_back("-include");
-  kflags.push_back("/virtual/include/bcc/helpers.h");
-  kflags.push_back("-isystem");
-  kflags.push_back("/virtual/include");
+  if (flags_ & DEBUG_SOURCE)
+    flags_cstr.push_back("-g");
   for (auto it = kflags.begin(); it != kflags.end(); ++it)
     flags_cstr.push_back(it->c_str());
+
+  vector<const char *> flags_cstr_rem;
+  flags_cstr_rem.push_back("-include");
+  flags_cstr_rem.push_back("/virtual/include/bcc/helpers.h");
+  flags_cstr_rem.push_back("-isystem");
+  flags_cstr_rem.push_back("/virtual/include");
   if (cflags) {
     for (auto i = 0; i < ncflags; ++i)
-      flags_cstr.push_back(cflags[i]);
+      flags_cstr_rem.push_back(cflags[i]);
   }
+#ifdef CUR_CPU_IDENTIFIER
+  string cur_cpu_flag = string("-DCUR_CPU_IDENTIFIER=") + CUR_CPU_IDENTIFIER;
+  flags_cstr_rem.push_back(cur_cpu_flag.c_str());
+#endif
+
+  if (do_compile(mod, ts, in_memory, flags_cstr, flags_cstr_rem, main_path,
+                 main_buf, id, func_src, mod_src, true)) {
+#if BCC_BACKUP_COMPILE != 1
+    return -1;
+#else
+    // try one more time to compile with system bpf.h
+    llvm::errs() << "WARNING: compilation failure, trying with system bpf.h\n";
+
+    ts.DeletePrefix(Path({id}));
+    func_src.clear();
+    mod_src.clear();
+    if (do_compile(mod, ts, in_memory, flags_cstr, flags_cstr_rem, main_path,
+                   main_buf, id, func_src, mod_src, false))
+      return -1;
+#endif
+  }
+
+  return 0;
+}
+
+int ClangLoader::do_compile(unique_ptr<llvm::Module> *mod, TableStorage &ts,
+                            bool in_memory,
+                            const vector<const char *> &flags_cstr_in,
+                            const vector<const char *> &flags_cstr_rem,
+                            const std::string &main_path,
+                            const unique_ptr<llvm::MemoryBuffer> &main_buf,
+                            const std::string &id, FuncSource &func_src,
+                            std::string &mod_src, bool use_internal_bpfh) {
+  using namespace clang;
+
+  vector<const char *> flags_cstr = flags_cstr_in;
+  if (use_internal_bpfh) {
+    flags_cstr.push_back("-include");
+    flags_cstr.push_back("/virtual/include/bcc/bpf.h");
+  }
+  flags_cstr.insert(flags_cstr.end(), flags_cstr_rem.begin(),
+                    flags_cstr_rem.end());
 
   // set up the error reporting class
   IntrusiveRefCntPtr<DiagnosticOptions> diag_opts(new DiagnosticOptions());
@@ -227,8 +277,8 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   if (in_memory) {
     invocation0.getPreprocessorOpts().addRemappedFile(main_path, &*main_buf);
     invocation0.getFrontendOpts().Inputs.clear();
-    invocation0.getFrontendOpts().Inputs.push_back(
-        FrontendInputFile(main_path, IK_C));
+    invocation0.getFrontendOpts().Inputs.push_back(FrontendInputFile(
+        main_path, FrontendOptions::getInputKindForExtension("c")));
   }
   invocation0.getFrontendOpts().DisableFree = false;
 
@@ -257,8 +307,8 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
     invocation1.getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
   invocation1.getPreprocessorOpts().addRemappedFile(main_path, &*out_buf);
   invocation1.getFrontendOpts().Inputs.clear();
-  invocation1.getFrontendOpts().Inputs.push_back(
-      FrontendInputFile(main_path, IK_C));
+  invocation1.getFrontendOpts().Inputs.push_back(FrontendInputFile(
+      main_path, FrontendOptions::getInputKindForExtension("c")));
   invocation1.getFrontendOpts().DisableFree = false;
 
   compiler1.createDiagnostics();
@@ -266,12 +316,10 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   // capture the rewritten c file
   string out_str1;
   llvm::raw_string_ostream os1(out_str1);
-  BFrontendAction bact(os1, flags_);
+  BFrontendAction bact(os1, flags_, ts, id, func_src, mod_src);
   if (!compiler1.ExecuteAction(bact))
     return -1;
   unique_ptr<llvm::MemoryBuffer> out_buf1 = llvm::MemoryBuffer::getMemBuffer(out_str1);
-  // this contains the open FDs
-  *tables = bact.take_tables();
 
   // second pass, clear input and take rewrite buffer
   CompilerInstance compiler2;
@@ -285,9 +333,13 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
     invocation2.getPreprocessorOpts().addRemappedFile(f.first, &*f.second);
   invocation2.getPreprocessorOpts().addRemappedFile(main_path, &*out_buf1);
   invocation2.getFrontendOpts().Inputs.clear();
-  invocation2.getFrontendOpts().Inputs.push_back(
-      FrontendInputFile(main_path, IK_C));
+  invocation2.getFrontendOpts().Inputs.push_back(FrontendInputFile(
+      main_path, FrontendOptions::getInputKindForExtension("c")));
   invocation2.getFrontendOpts().DisableFree = false;
+  invocation2.getCodeGenOpts().DisableFree = false;
+  // Resort to normal inlining. In -O0 the default is OnlyAlwaysInlining and
+  // clang might add noinline attribute even for functions with inline hint.
+  invocation2.getCodeGenOpts().setInlining(CodeGenOptions::NormalInlining);
   // suppress warnings in the 2nd pass, but bail out on errors (our fault)
   invocation2.getDiagnosticOpts().IgnoreWarnings = true;
   compiler2.createDiagnostics();
@@ -300,5 +352,26 @@ int ClangLoader::parse(unique_ptr<llvm::Module> *mod, unique_ptr<vector<TableDes
   return 0;
 }
 
+const char * FuncSource::src(const std::string& name) {
+  auto src = funcs_.find(name);
+  if (src == funcs_.end())
+    return "";
+  return src->second.src_.data();
+}
+
+const char * FuncSource::src_rewritten(const std::string& name) {
+  auto src = funcs_.find(name);
+  if (src == funcs_.end())
+    return "";
+  return src->second.src_rewritten_.data();
+}
+
+void FuncSource::set_src(const std::string& name, const std::string& src) {
+  funcs_[name].src_ = src;
+}
+
+void FuncSource::set_src_rewritten(const std::string& name, const std::string& src) {
+  funcs_[name].src_rewritten_ = src;
+}
 
 }  // namespace ebpf

@@ -6,10 +6,12 @@
   - [Fedora](#fedora---binary)
   - [Arch](#arch---aur)
   - [Gentoo](#gentoo---portage)
+  - [openSUSE](#opensuse---binary)
 * [Source](#source)
   - [Debian](#debian---source)
   - [Ubuntu](#ubuntu---source)
   - [Fedora](#fedora---source)
+  - [openSUSE](#opensuse---source)
 * [Older Instructions](#older-instructions)
 
 ## Kernel Configuration
@@ -53,7 +55,7 @@ Only the nightly packages are built for Ubuntu 16.04, but the steps are very str
 ```bash
 echo "deb [trusted=yes] https://repo.iovisor.org/apt/xenial xenial-nightly main" | sudo tee /etc/apt/sources.list.d/iovisor.list
 sudo apt-get update
-sudo apt-get install bcc-tools
+sudo apt-get install bcc-tools libbcc-examples linux-headers-$(uname -r)
 ```
 
 ## Ubuntu Trusty - Binary
@@ -86,7 +88,7 @@ To install:
 sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys D4284CDD
 echo "deb https://repo.iovisor.org/apt trusty main" | sudo tee /etc/apt/sources.list.d/iovisor.list
 sudo apt-get update
-sudo apt-get install binutils bcc bcc-tools libbcc-examples python-bcc
+sudo apt-get install binutils bcc bcc-tools libbcc-examples python-bcc linux-headers-$(uname -r)
 ```
 
 **Nightly Packages**
@@ -112,7 +114,7 @@ sudo python /usr/share/bcc/examples/networking/simple_tc.py
 
 ## Fedora - Binary
 
-Install a 4.2+ kernel from
+Ensure that you are running a 4.2+ kernel with `uname -r`. If not, install a 4.2+ kernel from
 http://alt.fedoraproject.org/pub/alt/rawhide-kernel-nodebug, for example:
 
 ```bash
@@ -121,13 +123,13 @@ sudo dnf update
 # reboot
 ```
 
-Nightly bcc binary packages are built for Fedora 23 and 24, hosted at
-`https://repo.iovisor.org/yum/nightly/f{23,24}`.
+Nightly bcc binary packages for Fedora 23, 24, and 25 are hosted at
+`https://repo.iovisor.org/yum/nightly/f{23,24,25}`.
 
-To install (change 'f23' to 'f24' for rawhide):
+To install:
 ```bash
-echo -e '[iovisor]\nbaseurl=https://repo.iovisor.org/yum/nightly/f23/$basearch\nenabled=1\ngpgcheck=0' | sudo tee /etc/yum.repos.d/iovisor.repo
-sudo dnf install bcc-tools
+echo -e '[iovisor]\nbaseurl=https://repo.iovisor.org/yum/nightly/f25/$basearch\nenabled=1\ngpgcheck=0' | sudo tee /etc/yum.repos.d/iovisor.repo
+sudo dnf install bcc-tools kernel-devel-$(uname -r) kernel-headers-$(uname -r)
 ```
 
 ## Arch - AUR
@@ -160,6 +162,16 @@ Finally, you can install bcc with:
 emerge dev-util/bcc
 ```
 The appropriate dependencies (e.g., ```clang```, ```llvm``` with BPF backend) will be pulled automatically.
+
+## openSUSE - Binary
+
+For openSUSE Leap 42.2 (and later) and Tumbleweed, bcc is already included in the official repo. Just install
+the packages with zypper.
+
+```bash
+sudo zypper ref
+sudo zypper in bcc-tools bcc-examples
+```
 
 
 # Source
@@ -204,7 +216,7 @@ Note, check for the latest `linux-image-4.x` version in `jessie-backports` befor
 apt-get update
 
 # Update kernel and linux-base package
-apt-get -t jessie-backports install linux-base linux-image-4.8.0-0.bpo.2-amd64
+apt-get -t jessie-backports install linux-base linux-image-4.9.0-0.bpo.2-amd64 linux-headers-4.9.0-0.bpo.2-amd64
 
 # BCC build dependencies:
 apt-get install debhelper cmake libllvm3.8 llvm-3.8-dev libclang-3.8-dev \
@@ -319,6 +331,34 @@ mkdir bcc/build; cd bcc/build
 cmake .. -DCMAKE_INSTALL_PREFIX=/usr
 make
 sudo make install
+```
+
+## openSUSE - Source
+
+### Install build dependencies
+
+```
+sudo zypper in bison cmake flex gcc gcc-c++ git libelf-devel libstdc++-devel \
+  llvm-devel pkg-config python-devel python-setuptools python3-devel \
+  python3-setuptools
+sudo zypper in luajit-devel       # for lua support in openSUSE Leap 42.2 or later
+sudo zypper in lua51-luajit-devel # for lua support in openSUSE Tumbleweed
+```
+
+### Install and compile BCC
+```
+git clone https://github.com/iovisor/bcc.git
+mkdir bcc/build; cd bcc/build
+cmake -DCMAKE_INSTALL_PREFIX=/usr \
+      -DLUAJIT_INCLUDE_DIR=`pkg-config --variable=includedir luajit` \ # for lua support
+      ..
+make
+sudo make install
+cmake -DPYTHON_CMD=python3 .. # build python3 binding
+pushd src/python/
+make
+sudo make install
+popd
 ```
 
 # Older Instructions

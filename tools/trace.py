@@ -136,15 +136,15 @@ class Probe(object):
                         self.library = ""       # kernel
                         self.function = ""      # from TRACEPOINT_PROBE
                 elif self.probe_type == "u":
-                        self.library = parts[1]
-                        self.usdt_name = parts[2]
+                        self.library = ':'.join(parts[1:-1])
+                        self.usdt_name = parts[-1]
                         self.function = ""      # no function, just address
                         # We will discover the USDT provider by matching on
                         # the USDT name in the specified library
                         self._find_usdt_probe()
                 else:
-                        self.library = parts[1]
-                        self.function = parts[2]
+                        self.library = ':'.join(parts[1:-1])
+                        self.function = parts[-1]
 
         def _find_usdt_probe(self):
                 target = Probe.pid if Probe.pid and Probe.pid != -1 \
@@ -486,13 +486,13 @@ BPF_PERF_OUTPUT(%s);
                 msg = self._format_message(bpf, event.tgid, values)
                 if not Probe.print_time:
                     print("%-6d %-6d %-12s %-16s %s" %
-                          (event.tgid, event.pid, event.comm,
+                          (event.tgid, event.pid, event.comm.decode(),
                            self._display_function(), msg))
                 else:
                     time = strftime("%H:%M:%S") if Probe.use_localtime else \
                            Probe._time_off_str(event.timestamp_ns)
                     print("%-8s %-6d %-6d %-12s %-16s %s" %
-                          (time[:8], event.tgid, event.pid, event.comm,
+                          (time[:8], event.tgid, event.pid, event.comm.decode(),
                            self._display_function(), msg))
 
                 if self.kernel_stack:
@@ -691,10 +691,13 @@ trace 'p::SyS_nanosleep(struct timespec *ts) "sleep for %lld ns", ts->tv_nsec'
                         self._attach_probes()
                         self._main_loop()
                 except:
+                        exc_info = sys.exc_info()
+                        sys_exit = exc_info[0] is SystemExit
                         if self.args.verbose:
                                 traceback.print_exc()
-                        elif sys.exc_info()[0] is not SystemExit:
-                                print(sys.exc_info()[1])
+                        elif not sys_exit:
+                                print(exc_info[1])
+                        exit(0 if sys_exit else 1)
 
 if __name__ == "__main__":
         Tool().run()

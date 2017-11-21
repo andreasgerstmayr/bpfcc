@@ -105,12 +105,22 @@ if debug:
 
 # initialize BPF
 b = BPF(text=bpf_text)
-b.attach_kprobe(event="sys_stat", fn_name="trace_entry")
-b.attach_kprobe(event="sys_statfs", fn_name="trace_entry")
-b.attach_kprobe(event="sys_newstat", fn_name="trace_entry")
-b.attach_kretprobe(event="sys_stat", fn_name="trace_return")
-b.attach_kretprobe(event="sys_statfs", fn_name="trace_return")
-b.attach_kretprobe(event="sys_newstat", fn_name="trace_return")
+
+# for POSIX compliance, all architectures implement these
+# system calls but the name of the actual entry point may
+# be different for which we must check if the entry points
+# actually exist before attaching the probes
+if BPF.ksymname("sys_stat") != -1:
+    b.attach_kprobe(event="sys_stat", fn_name="trace_entry")
+    b.attach_kretprobe(event="sys_stat", fn_name="trace_return")
+
+if BPF.ksymname("sys_statfs") != -1:
+    b.attach_kprobe(event="sys_statfs", fn_name="trace_entry")
+    b.attach_kretprobe(event="sys_statfs", fn_name="trace_return")
+
+if BPF.ksymname("sys_newstat") != -1:
+    b.attach_kprobe(event="sys_newstat", fn_name="trace_entry")
+    b.attach_kretprobe(event="sys_newstat", fn_name="trace_return")
 
 TASK_COMM_LEN = 16    # linux/sched.h
 NAME_MAX = 255        # linux/limits.h
@@ -155,8 +165,8 @@ def print_event(cpu, data, size):
     if args.timestamp:
         print("%-14.9f" % (float(event.ts_ns - start_ts) / 1000000000), end="")
 
-    print("%-6d %-16s %4d %3d %s" % (event.pid, event.comm,
-        fd_s, err, event.fname))
+    print("%-6d %-16s %4d %3d %s" % (event.pid, event.comm.decode(),
+        fd_s, err, event.fname.decode()))
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event, page_cnt=64)

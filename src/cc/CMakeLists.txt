@@ -25,6 +25,7 @@ include(static_libstdc++)
 add_library(bpf-static STATIC libbpf.c perf_reader.c)
 set_target_properties(bpf-static PROPERTIES OUTPUT_NAME bpf)
 add_library(bpf-shared SHARED libbpf.c perf_reader.c)
+set_target_properties(bpf-shared PROPERTIES VERSION ${REVISION_LAST} SOVERSION 0)
 set_target_properties(bpf-shared PROPERTIES OUTPUT_NAME bpf)
 
 set(bcc_common_sources bpf_common.cc bpf_module.cc exported_files.cc)
@@ -56,24 +57,30 @@ include(clang_libs)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${clang_lib_exclude_flags}")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${llvm_lib_exclude_flags}")
 
-set(bcc_common_libs b_frontend clang_frontend bpf-static
+# bcc_common_libs_for_a for archive libraries
+# bcc_common_libs_for_s for shared libraries
+set(bcc_common_libs_for_a b_frontend clang_frontend bpf-static
   ${clang_libs} ${llvm_libs} ${LIBELF_LIBRARIES})
+set(bcc_common_libs_for_s ${bcc_common_libs_for_a})
 
 if(ENABLE_CPP_API)
   add_subdirectory(api)
-  list(APPEND bcc_common_libs api-static)
+  list(APPEND bcc_common_libs_for_a api-static)
+  # Keep all API functions
+  list(APPEND bcc_common_libs_for_s -Wl,--whole-archive api-static -Wl,--no-whole-archive)
 endif()
 
 if(ENABLE_USDT)
   add_subdirectory(usdt)
-  list(APPEND bcc_common_libs usdt-static)
+  list(APPEND bcc_common_libs_for_a usdt-static)
+  list(APPEND bcc_common_libs_for_s usdt-static)
 endif()
 
 add_subdirectory(frontends)
 
 # Link against LLVM libraries
-target_link_libraries(bcc-shared ${bcc_common_libs})
-target_link_libraries(bcc-static ${bcc_common_libs} bcc-loader-static)
+target_link_libraries(bcc-shared ${bcc_common_libs_for_s})
+target_link_libraries(bcc-static ${bcc_common_libs_for_a} bcc-loader-static)
 
 install(TARGETS bcc-shared LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES ${bcc_table_headers} DESTINATION include/bcc)

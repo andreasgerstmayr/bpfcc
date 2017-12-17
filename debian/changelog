@@ -1,3 +1,11 @@
+bpfcc (0.5.0-1) unstable; urgency=medium
+
+  * New upstream version 0.5.0
+  * Drop architecture support to 64bit common architectures only
+    (Closes: #882344)
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Sun, 17 Dec 2017 18:19:44 +0530
+
 bpfcc (0.4.0-1) unstable; urgency=medium
 
   [ Edward Betts ]

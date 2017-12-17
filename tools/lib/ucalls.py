@@ -67,7 +67,8 @@ if language == "java":
     return_probe = "method__return"
     read_class = "bpf_usdt_readarg(2, ctx, &clazz);"
     read_method = "bpf_usdt_readarg(4, ctx, &method);"
-    extra_message = "If you do not see any results, make sure you ran java with option -XX:+ExtendedDTraceProbes"
+    extra_message = ("If you do not see any results, make sure you ran java"
+                     " with option -XX:+ExtendedDTraceProbes")
 elif language == "python":
     entry_probe = "function__entry"
     return_probe = "function__return"
@@ -84,7 +85,8 @@ elif language == "php":
     return_probe = "function__return"
     read_class = "bpf_usdt_readarg(4, ctx, &clazz);"
     read_method = "bpf_usdt_readarg(1, ctx, &method);"
-    extra_message = "If you do not see any results, make sure the environment variable USE_ZEND_DTRACE is set to 1"
+    extra_message = ("If you do not see any results, make sure the environment"
+                     " variable USE_ZEND_DTRACE is set to 1")
 elif not language or language == "none":
     if not args.syscalls:
         print("Nothing to do; use -S to trace syscalls.")
@@ -185,7 +187,7 @@ int trace_return(struct pt_regs *ctx) {
 #ifdef SYSCALLS
 int syscall_entry(struct pt_regs *ctx) {
     u64 pid = bpf_get_current_pid_tgid();
-    u64 *valp, ip = ctx->ip, val = 0;
+    u64 *valp, ip = PT_REGS_IP(ctx), val = 0;
     PID_FILTER
 #ifdef LATENCY
     struct syscall_entry_t data = {};

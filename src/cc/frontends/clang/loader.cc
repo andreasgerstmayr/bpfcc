@@ -49,8 +49,8 @@
 
 #include <llvm/IR/Module.h>
 
-#include "common.h"
 #include "bcc_exception.h"
+#include "bpf_module.h"
 #include "exported_files.h"
 #include "kbuild_helper.h"
 #include "b_frontend_action.h"
@@ -64,15 +64,11 @@ using std::vector;
 
 namespace ebpf {
 
-map<string, unique_ptr<llvm::MemoryBuffer>> ClangLoader::remapped_files_;
-
 ClangLoader::ClangLoader(llvm::LLVMContext *ctx, unsigned flags)
     : ctx_(ctx), flags_(flags)
 {
-  if (remapped_files_.empty()) {
-    for (auto f : ExportedFiles::headers())
-      remapped_files_[f.first] = llvm::MemoryBuffer::getMemBuffer(f.second);
-  }
+  for (auto f : ExportedFiles::headers())
+    remapped_files_[f.first] = llvm::MemoryBuffer::getMemBuffer(f.second);
 }
 
 ClangLoader::~ClangLoader() {}
@@ -316,7 +312,7 @@ int ClangLoader::do_compile(unique_ptr<llvm::Module> *mod, TableStorage &ts,
   // capture the rewritten c file
   string out_str1;
   llvm::raw_string_ostream os1(out_str1);
-  BFrontendAction bact(os1, flags_, ts, id, func_src, mod_src);
+  BFrontendAction bact(os1, flags_, ts, id, main_path, func_src, mod_src);
   if (!compiler1.ExecuteAction(bact))
     return -1;
   unique_ptr<llvm::MemoryBuffer> out_buf1 = llvm::MemoryBuffer::getMemBuffer(out_str1);

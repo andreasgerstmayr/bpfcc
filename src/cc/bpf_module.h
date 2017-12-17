@@ -33,6 +33,21 @@ class Type;
 }
 
 namespace ebpf {
+
+// Options to enable different debug logging.
+enum {
+  // Debug output compiled LLVM IR.
+  DEBUG_LLVM_IR = 0x1,
+  // Debug output loaded BPF bytecode and register state on branches.
+  DEBUG_BPF = 0x2,
+  // Debug output pre-processor result.
+  DEBUG_PREPROCESSOR = 0x4,
+  // Debug output ASM instructions embedded with source.
+  DEBUG_SOURCE = 0x8,
+  // Debug output register state on all instructions in addition to DEBUG_BPF.
+  DEBUG_BPF_REGISTER_STATE = 0x10,
+};
+
 class TableDesc;
 class TableStorage;
 class BLoader;
@@ -105,14 +120,13 @@ class BPFModule {
 
  private:
   unsigned flags_;  // 0x1 for printing
+  bool used_b_loader_;
   std::string filename_;
   std::string proto_filename_;
   std::unique_ptr<llvm::LLVMContext> ctx_;
   std::unique_ptr<llvm::ExecutionEngine> engine_;
   std::unique_ptr<llvm::ExecutionEngine> rw_engine_;
   std::unique_ptr<llvm::Module> mod_;
-  std::unique_ptr<BLoader> b_loader_;
-  std::unique_ptr<ClangLoader> clang_loader_;
   std::unique_ptr<FuncSource> func_src_;
   std::map<std::string, std::tuple<uint8_t *, uintptr_t>> sections_;
   std::vector<TableDesc *> tables_;

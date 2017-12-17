@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <linux/bpf.h>
 #include <linux/bpf_common.h>
@@ -73,6 +74,8 @@
 #define PERF_FLAG_FD_CLOEXEC (1UL << 3)
 #endif
 
+#define min(x, y) ((x) < (y) ? (x) : (y))
+
 static int probe_perf_reader_page_cnt = 8;
 
 static uint64_t ptr_to_u64(void *ptr)
@@ -80,8 +83,11 @@ static uint64_t ptr_to_u64(void *ptr)
   return (uint64_t) (unsigned long) ptr;
 }
 
-int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries, int map_flags)
+int bpf_create_map(enum bpf_map_type map_type, const char *name,
+                   int key_size, int value_size,
+                   int max_entries, int map_flags)
 {
+  size_t name_len = name ? strlen(name) : 0;
   union bpf_attr attr;
   memset(&attr, 0, sizeof(attr));
   attr.map_type = map_type;
@@ -89,8 +95,15 @@ int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int
   attr.value_size = value_size;
   attr.max_entries = max_entries;
   attr.map_flags = map_flags;
+  memcpy(attr.map_name, name, min(name_len, BPF_OBJ_NAME_LEN - 1));
 
   int ret = syscall(__NR_bpf, BPF_MAP_CREATE, &attr, sizeof(attr));
+
+  if (ret < 0 && name_len && (errno == E2BIG || errno == EINVAL)) {
+    memset(attr.map_name, 0, BPF_OBJ_NAME_LEN);
+    ret = syscall(__NR_bpf, BPF_MAP_CREATE, &attr, sizeof(attr));
+  }
+
   if (ret < 0 && errno == EPERM) {
     // see note below about the rationale for this retry
 
@@ -187,9 +200,16 @@ int bpf_get_next_key(int fd, void *key, void *next_key)
   return syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
 }
 
-static void bpf_print_hints(char *log)
+static void bpf_print_hints(int ret, char *log)
 {
+  if (ret < 0)
+    fprintf(stderr, "bpf: Failed to load program: %s\n", strerror(errno));
   if (log == NULL)
+    return;
+  else
+    fprintf(stderr, "%s\n", log);
+
+  if (ret >= 0)
     return;
 
   // The following error strings will need maintenance to match LLVM.
@@ -220,7 +240,7 @@ static void bpf_print_hints(char *log)
 }
 #define ROUND_UP(x, n) (((x) + (n) - 1u) & ~((n) - 1u))
 
-int bpf_obj_get_info(int prog_map_fd, void *info, int *info_len)
+int bpf_obj_get_info(int prog_map_fd, void *info, uint32_t *info_len)
 {
   union bpf_attr attr;
   int err;
@@ -329,39 +349,65 @@ int bpf_prog_get_tag(int fd, unsigned long long *ptag)
   return 0;
 }
 
-int bpf_prog_load(enum bpf_prog_type prog_type,
+int bpf_prog_load(enum bpf_prog_type prog_type, const char *name,
                   const struct bpf_insn *insns, int prog_len,
                   const char *license, unsigned kern_version,
-                  char *log_buf, unsigned log_buf_size)
+                  int log_level, char *log_buf, unsigned log_buf_size)
 {
+  size_t name_len = name ? strlen(name) : 0;
   union bpf_attr attr;
-  char *bpf_log_buffer = NULL;
-  unsigned buffer_size = 0;
+  char *tmp_log_buf = NULL;
+  unsigned tmp_log_buf_size = 0;
   int ret = 0;
 
   memset(&attr, 0, sizeof(attr));
+
   attr.prog_type = prog_type;
-  attr.insns = ptr_to_u64((void *) insns);
-  attr.insn_cnt = prog_len / sizeof(struct bpf_insn);
-  attr.license = ptr_to_u64((void *) license);
-  attr.log_buf = ptr_to_u64(log_buf);
-  attr.log_size = log_buf_size;
-  attr.log_level = log_buf ? 1 : 0;
-
   attr.kern_version = kern_version;
-  if (log_buf)
-    log_buf[0] = 0;
+  attr.license = ptr_to_u64((void *)license);
 
+  attr.insns = ptr_to_u64((void *)insns);
+  attr.insn_cnt = prog_len / sizeof(struct bpf_insn);
   if (attr.insn_cnt > BPF_MAXINSNS) {
-    ret = -1;
     errno = EINVAL;
     fprintf(stderr,
-            "bpf: %s. Program too large (%d insns), at most %d insns\n\n",
+            "bpf: %s. Program too large (%u insns), at most %d insns\n\n",
             strerror(errno), attr.insn_cnt, BPF_MAXINSNS);
-    return ret;
+    return -1;
   }
 
+  attr.log_level = log_level;
+  if (attr.log_level > 0) {
+    if (log_buf_size > 0) {
+      // Use user-provided log buffer if availiable.
+      log_buf[0] = 0;
+      attr.log_buf = ptr_to_u64(log_buf);
+      attr.log_size = log_buf_size;
+    } else {
+      // Create and use temporary log buffer if user didn't provide one.
+      tmp_log_buf_size = LOG_BUF_SIZE;
+      tmp_log_buf = malloc(tmp_log_buf_size);
+      if (!tmp_log_buf) {
+        fprintf(stderr, "bpf: Failed to allocate temporary log buffer: %s\n\n",
+                strerror(errno));
+        attr.log_level = 0;
+      } else {
+        tmp_log_buf[0] = 0;
+        attr.log_buf = ptr_to_u64(tmp_log_buf);
+        attr.log_size = tmp_log_buf_size;
+      }
+    }
+  }
+
+  memcpy(attr.prog_name, name, min(name_len, BPF_OBJ_NAME_LEN - 1));
+
   ret = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+  // BPF object name is not supported on older Kernels.
+  // If we failed due to this, clear the name and try again.
+  if (ret < 0 && name_len && (errno == E2BIG || errno == EINVAL)) {
+    memset(attr.prog_name, 0, BPF_OBJ_NAME_LEN);
+    ret = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+  }
 
   if (ret < 0 && errno == EPERM) {
     // When EPERM is returned, two reasons are possible:
@@ -371,7 +417,6 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
     // mem for the user, so an accurate calculation of how much memory to lock
     // for this new program is difficult to calculate. As a hack, bump the limit
     // to unlimited. If program load fails again, return the error.
-
     struct rlimit rl = {};
     if (getrlimit(RLIMIT_MEMLOCK, &rl) == 0) {
       rl.rlim_max = RLIM_INFINITY;
@@ -381,40 +426,66 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
     }
   }
 
-  if (ret < 0 && !log_buf) {
-
-    buffer_size = LOG_BUF_SIZE;
-    // caller did not specify log_buf but failure should be printed,
-    // so repeat the syscall and print the result to stderr
-    for (;;) {
-         bpf_log_buffer = malloc(buffer_size);
-         if (!bpf_log_buffer) {
-             fprintf(stderr,
-                     "bpf: buffer log memory allocation failed for error %s\n\n",
-                     strerror(errno));
-             return ret;
-         }
-         bpf_log_buffer[0] = 0;
-
-         attr.log_buf = ptr_to_u64(bpf_log_buffer);
-         attr.log_size = buffer_size;
-         attr.log_level = bpf_log_buffer ? 1 : 0;
-
-         ret = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
-         if (ret < 0 && errno == ENOSPC) {
-             free(bpf_log_buffer);
-             bpf_log_buffer = NULL;
-             buffer_size <<= 1;
-         } else {
-             break;
-         }
+  // The load has failed. Handle log message.
+  if (ret < 0) {
+    // User has provided a log buffer.
+    if (log_buf_size) {
+      // If logging is not already enabled, enable it and do the syscall again.
+      if (attr.log_level == 0) {
+        attr.log_level = 1;
+        attr.log_buf = ptr_to_u64(log_buf);
+        attr.log_size = log_buf_size;
+        ret = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+      }
+      // Print the log message and return.
+      bpf_print_hints(ret, log_buf);
+      if (errno == ENOSPC)
+        fprintf(stderr, "bpf: log_buf size may be insufficient\n");
+      goto return_result;
     }
 
-    fprintf(stderr, "bpf: %s\n%s\n", strerror(errno), bpf_log_buffer);
-    bpf_print_hints(bpf_log_buffer);
+    // User did not provide log buffer. We will try to increase size of
+    // our temporary log buffer to get full error message.
+    if (tmp_log_buf)
+      free(tmp_log_buf);
+    tmp_log_buf_size = LOG_BUF_SIZE;
+    if (attr.log_level == 0)
+      attr.log_level = 1;
+    for (;;) {
+      tmp_log_buf = malloc(tmp_log_buf_size);
+      if (!tmp_log_buf) {
+        fprintf(stderr, "bpf: Failed to allocate temporary log buffer: %s\n\n",
+                strerror(errno));
+        goto return_result;
+      }
+      tmp_log_buf[0] = 0;
+      attr.log_buf = ptr_to_u64(tmp_log_buf);
+      attr.log_size = tmp_log_buf_size;
 
-    free(bpf_log_buffer);
+      ret = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+      if (ret < 0 && errno == ENOSPC) {
+        // Temporary buffer size is not enough. Double it and try again.
+        free(tmp_log_buf);
+        tmp_log_buf = NULL;
+        tmp_log_buf_size <<= 1;
+      } else {
+        break;
+      }
+    }
   }
+
+  // If log_level is not 0, either speficied by user or set due to error,
+  // print the log message.
+  if (attr.log_level > 0) {
+    if (log_buf)
+      bpf_print_hints(ret, log_buf);
+    else if (tmp_log_buf)
+      bpf_print_hints(ret, tmp_log_buf);
+  }
+
+return_result:
+  if (tmp_log_buf)
+    free(tmp_log_buf);
   return ret;
 }
 
@@ -428,6 +499,10 @@ int bpf_open_raw_sock(const char *name)
     fprintf(stderr, "cannot create raw socket\n");
     return -1;
   }
+
+  /* Do not bind on empty interface names */
+  if (!name || *name == '\0')
+    return sock;
 
   memset(&sll, 0, sizeof(sll));
   sll.sll_family = AF_PACKET;
@@ -776,27 +851,48 @@ error:
 
 static int invalid_perf_config(uint32_t type, uint64_t config) {
   switch (type) {
-    case PERF_TYPE_HARDWARE:
-      return config >= PERF_COUNT_HW_MAX;
-    case PERF_TYPE_SOFTWARE:
-      return config >= PERF_COUNT_SW_MAX;
-    case PERF_TYPE_RAW:
-      return 0;
-    default:
-      return 1;
+  case PERF_TYPE_HARDWARE:
+    if (config >= PERF_COUNT_HW_MAX) {
+      fprintf(stderr, "HARDWARE perf event config out of range\n");
+      goto is_invalid;
+    }
+    return 0;
+  case PERF_TYPE_SOFTWARE:
+    if (config >= PERF_COUNT_SW_MAX) {
+      fprintf(stderr, "SOFTWARE perf event config out of range\n");
+      goto is_invalid;
+    } else if (config == 10 /* PERF_COUNT_SW_BPF_OUTPUT */) {
+      fprintf(stderr, "Unable to open or attach perf event for BPF_OUTPUT\n");
+      goto is_invalid;
+    }
+    return 0;
+  case PERF_TYPE_HW_CACHE:
+    if (((config >> 16) >= PERF_COUNT_HW_CACHE_RESULT_MAX) ||
+        (((config >> 8) & 0xff) >= PERF_COUNT_HW_CACHE_OP_MAX) ||
+        ((config & 0xff) >= PERF_COUNT_HW_CACHE_MAX)) {
+      fprintf(stderr, "HW_CACHE perf event config out of range\n");
+      goto is_invalid;
+    }
+    return 0;
+  case PERF_TYPE_TRACEPOINT:
+  case PERF_TYPE_BREAKPOINT:
+    fprintf(stderr,
+            "Unable to open or attach TRACEPOINT or BREAKPOINT events\n");
+    goto is_invalid;
+  default:
+    return 0;
   }
+is_invalid:
+  fprintf(stderr, "Invalid perf event type %" PRIu32 " config %" PRIu64 "\n",
+          type, config);
+  return 1;
 }
 
 int bpf_open_perf_event(uint32_t type, uint64_t config, int pid, int cpu) {
   int fd;
   struct perf_event_attr attr = {};
 
-  if (type != PERF_TYPE_HARDWARE && type != PERF_TYPE_RAW) {
-    fprintf(stderr, "Unsupported perf event type\n");
-    return -1;
-  }
   if (invalid_perf_config(type, config)) {
-    fprintf(stderr, "Invalid perf event config\n");
     return -1;
   }
 
@@ -943,12 +1039,7 @@ cleanup:
 int bpf_attach_perf_event(int progfd, uint32_t ev_type, uint32_t ev_config,
                           uint64_t sample_period, uint64_t sample_freq,
                           pid_t pid, int cpu, int group_fd) {
-  if (ev_type != PERF_TYPE_HARDWARE && ev_type != PERF_TYPE_SOFTWARE) {
-    fprintf(stderr, "Unsupported perf event type\n");
-    return -1;
-  }
   if (invalid_perf_config(ev_type, ev_config)) {
-    fprintf(stderr, "Invalid perf event config\n");
     return -1;
   }
   if (!((sample_period > 0) ^ (sample_freq > 0))) {
@@ -1026,4 +1117,39 @@ int bpf_obj_get(const char *pathname)
   attr.pathname = ptr_to_u64((void *)pathname);
 
   return syscall(__NR_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
+}
+
+int bpf_prog_get_next_id(uint32_t start_id, uint32_t *next_id)
+{
+  union bpf_attr attr;
+  int err;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.start_id = start_id;
+
+  err = syscall(__NR_bpf, BPF_PROG_GET_NEXT_ID, &attr, sizeof(attr));
+  if (!err)
+    *next_id = attr.next_id;
+
+  return err;
+}
+
+int bpf_prog_get_fd_by_id(uint32_t id)
+{
+  union bpf_attr attr;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.prog_id = id;
+
+  return syscall(__NR_bpf, BPF_PROG_GET_FD_BY_ID, &attr, sizeof(attr));
+}
+
+int bpf_map_get_fd_by_id(uint32_t id)
+{
+  union bpf_attr attr;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.map_id = id;
+
+  return syscall(__NR_bpf, BPF_MAP_GET_FD_BY_ID, &attr, sizeof(attr));
 }

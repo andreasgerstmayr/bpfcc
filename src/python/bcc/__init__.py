@@ -39,11 +39,18 @@ def _get_num_open_probes():
 
 TRACEFS = "/sys/kernel/debug/tracing"
 
+# Debug flags
+
+# Debug output compiled LLVM IR.
 DEBUG_LLVM_IR = 0x1
+# Debug output loaded BPF bytecode and register state on branches.
 DEBUG_BPF = 0x2
+# Debug output pre-processor result.
 DEBUG_PREPROCESSOR = 0x4
+# Debug output ASM instructions embedded with source.
 DEBUG_SOURCE = 0x8
-LOG_BUFFER_SIZE = 65536
+#Debug output register state on all instructions in addition to DEBUG_BPF.
+DEBUG_BPF_REGISTER_STATE = 0x10
 
 class SymbolCache(object):
     def __init__(self, pid):
@@ -61,11 +68,11 @@ class SymbolCache(object):
         address as the offset.
         """
         sym = bcc_symbol()
-        psym = ct.pointer(sym)
         if demangle:
-            res = lib.bcc_symcache_resolve(self.cache, addr, psym)
+            res = lib.bcc_symcache_resolve(self.cache, addr, ct.byref(sym))
         else:
-            res = lib.bcc_symcache_resolve_no_demangle(self.cache, addr, psym)
+            res = lib.bcc_symcache_resolve_no_demangle(self.cache, addr,
+                                                       ct.byref(sym))
         if res < 0:
             if sym.module and sym.offset:
                 return (None, sym.offset,
@@ -73,7 +80,7 @@ class SymbolCache(object):
             return (None, addr, None)
         if demangle:
             name_res = sym.demangle_name.decode()
-            lib.bcc_symbol_free_demangle_name(psym)
+            lib.bcc_symbol_free_demangle_name(ct.byref(sym))
         else:
             name_res = sym.name.decode()
         return (name_res, sym.offset,
@@ -83,7 +90,7 @@ class SymbolCache(object):
         addr = ct.c_ulonglong()
         if lib.bcc_symcache_resolve_name(
                     self.cache, module.encode("ascii") if module else None,
-                    name.encode("ascii"), ct.pointer(addr)) < 0:
+                    name.encode("ascii"), ct.byref(addr)) < 0:
             return -1
         return addr.value
 
@@ -165,7 +172,7 @@ class BPF(object):
         CLOCK_MONOTONIC constant. The time returned is in nanoseconds.
         """
         t = cls.timespec()
-        if cls._clock_gettime(cls.CLOCK_MONOTONIC, ct.pointer(t)) != 0:
+        if cls._clock_gettime(cls.CLOCK_MONOTONIC, ct.byref(t)) != 0:
             errno = ct.get_errno()
             raise OSError(errno, os.strerror(errno))
         return t.tv_sec * 1e9 + t.tv_nsec
@@ -249,9 +256,7 @@ class BPF(object):
             hdr_file (Optional[str]): Path to a helper header file for the `src_file`
             text (Optional[str]): Contents of a source file for the module
             debug (Optional[int]): Flags used for debug prints, can be |'d together
-                DEBUG_LLVM_IR: print LLVM IR to stderr
-                DEBUG_BPF: print BPF bytecode to stderr
-                DEBUG_PREPROCESSOR: print Preprocessed C file to stderr
+                                   See "Debug flags" for explanation
         """
 
         self.open_kprobes = {}
@@ -320,22 +325,18 @@ class BPF(object):
             return self.funcs[func_name]
         if not lib.bpf_function_start(self.module, func_name.encode("ascii")):
             raise Exception("Unknown program %s" % func_name)
-        buffer_len = LOG_BUFFER_SIZE
-        while True:
-            log_buf = ct.create_string_buffer(buffer_len) if self.debug else None
-            fd = lib.bpf_prog_load(prog_type,
-                    lib.bpf_function_start(self.module, func_name.encode("ascii")),
-                    lib.bpf_function_size(self.module, func_name.encode("ascii")),
-                    lib.bpf_module_license(self.module),
-                    lib.bpf_module_kern_version(self.module),
-                    log_buf, ct.sizeof(log_buf) if log_buf else 0)
-            if fd < 0 and ct.get_errno() == errno.ENOSPC and self.debug:
-                buffer_len <<= 1
-            else:
-                break
-
-        if self.debug & DEBUG_BPF and log_buf.value:
-            print(log_buf.value.decode(), file=sys.stderr)
+        log_level = 0
+        if (self.debug & DEBUG_BPF_REGISTER_STATE):
+            log_level = 2
+        elif (self.debug & DEBUG_BPF):
+            log_level = 1
+        fd = lib.bpf_prog_load(prog_type,
+                func_name.encode("ascii"),
+                lib.bpf_function_start(self.module, func_name.encode("ascii")),
+                lib.bpf_function_size(self.module, func_name.encode("ascii")),
+                lib.bpf_module_license(self.module),
+                lib.bpf_module_kern_version(self.module),
+                log_level, None, 0);
 
         if fd < 0:
             atexit.register(self.donothing)
@@ -377,7 +378,9 @@ class BPF(object):
         u"unsigned long long": ct.c_ulonglong,
         u"float": ct.c_float,
         u"double": ct.c_double,
-        u"long double": ct.c_longdouble
+        u"long double": ct.c_longdouble,
+        u"__int128": ct.c_int64 * 2,
+        u"unsigned __int128": ct.c_uint64 * 2,
     }
     @staticmethod
     def _decode_table_type(desc):
@@ -608,13 +611,12 @@ class BPF(object):
     @classmethod
     def _check_path_symbol(cls, module, symname, addr, pid):
         sym = bcc_symbol()
-        psym = ct.pointer(sym)
         c_pid = 0 if pid == -1 else pid
         if lib.bcc_resolve_symname(
             module.encode("ascii"), symname.encode("ascii"),
             addr or 0x0, c_pid,
             ct.cast(None, ct.POINTER(bcc_symbol_option)),
-            psym,
+            ct.byref(sym),
         ) < 0:
             raise Exception("could not determine address of symbol %s" % symname)
         module_path = ct.cast(sym.module, ct.c_char_p).value.decode()

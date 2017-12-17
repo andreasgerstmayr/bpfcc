@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 PLUMgrid, Inc.
+ * Copyright (c) 2017 IBM Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,26 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <stdarg.h>
+#include <stdio.h>
 
-#pragma once
+int cmd_scanf(const char *cmd, const char *fmt, ...) {
+  va_list args;
+  FILE *pipe;
 
-#include <memory>
-#include <string>
-#include <unistd.h>
-#include <vector>
+  va_start(args, fmt);
+  pipe = popen(cmd, "r");
+  if (pipe == NULL) {
+    va_end(args);
+    return -1;
+  }
 
-namespace ebpf {
-
-template <class T, class... Args>
-typename std::enable_if<!std::is_array<T>::value, std::unique_ptr<T>>::type
-make_unique(Args &&... args) {
-  return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+  vfscanf(pipe, fmt, args);
+  va_end(args);
+  pclose(pipe);
+  return 0;
 }
-
-std::vector<int> get_online_cpus();
-
-std::vector<int> get_possible_cpus();
-
-std::string get_pid_exe(pid_t pid);
-
-}  // namespace ebpf

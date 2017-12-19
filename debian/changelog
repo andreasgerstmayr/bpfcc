@@ -1,3 +1,10 @@
+bpfcc (0.5.0-2) unstable; urgency=medium
+
+  * Really enable some 64bit architectures. We'll extend to other
+    architectures only when upstream has readiness
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Tue, 19 Dec 2017 22:47:20 +0530
+
 bpfcc (0.5.0-1) unstable; urgency=medium
 
   * New upstream version 0.5.0

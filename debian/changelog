@@ -1,3 +1,9 @@
+bpfcc (0.5.0-3) unstable; urgency=medium
+
+  * Extend libbpfcc to ppc64 too. And restrict bpfcc-lua to amd64 only
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Wed, 20 Dec 2017 21:35:42 +0530
+
 bpfcc (0.5.0-2) unstable; urgency=medium
 
   * Really enable some 64bit architectures. We'll extend to other

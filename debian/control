@@ -30,7 +30,7 @@ Vcs-Git: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 Vcs-Browser: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 
 Package: libbpfcc
-Architecture: amd64 arm64 ppc64el
+Architecture: amd64 arm64 ppc64el ppc64
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: shared library for BPF Compiler Collection (BCC)
  BPF Compiler Collection (BCC) is a toolkit for creating efficient
@@ -84,7 +84,7 @@ Description: tools for BPF Compiler Collection (BCC)
  This package provides the command-line tools and examples
 
 Package: bpfcc-lua
-Architecture: amd64 arm64 ppc64el
+Architecture: amd64
 Depends: libbpfcc (>= ${binary:Version}), ${misc:Depends}, ${shlibs:Depends}
 Description: Standalone tool to run BCC tracers written in Lua
  BPF Compiler Collection (BCC) is a toolkit for creating efficient

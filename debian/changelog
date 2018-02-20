@@ -1,3 +1,9 @@
+bpfcc (0.5.0-4) unstable; urgency=medium
+
+  * Check for file type before renaming (Closes: #890686)
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Tue, 20 Feb 2018 15:03:10 +0530
+
 bpfcc (0.5.0-3) unstable; urgency=medium
 
   * Extend libbpfcc to ppc64 too. And restrict bpfcc-lua to amd64 only

@@ -18,6 +18,8 @@ override_dh_auto_configure:
 
 override_dh_auto_install:
 	dh_auto_install
+	test -d $(CURDIR)/debian/tmp/usr/share/bcc/tools/doc && mv $(CURDIR)/debian/tmp/usr/share/bcc/tools/doc/* $(CURDIR)/debian/tmp/usr/share/bcc/doc/ && rm -d $(CURDIR)/debian/tmp/usr/share/bcc/tools/doc
+
 	for eachFile in $(CURDIR)/debian/tmp/usr/share/bcc/tools/* ; do \
 	    test -f  $$eachFile && mv $$eachFile $$eachFile-bpfcc ; \
 	done

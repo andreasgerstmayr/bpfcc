@@ -10,10 +10,10 @@ CFLAGS=$(shell dpkg-buildflags --get CFLAGS) -no-pie
 CXXFLAGS=$(shell dpkg-buildflags --get CXXFLAGS) -no-pie
 
 %:
-	dh $@ --buildsystem=cmake --parallel --with python2
+	dh $@ --buildsystem=cmake --parallel --with python2,python3
 
 override_dh_auto_configure:
-	dh_auto_configure -- -DREVISION_LAST=$(DEB_VERSION_UPSTREAM) -DREVISION=$(DEB_VERSION_UPSTREAM) -DLLVM_DEFINITIONS="-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS" -DBCC_KERNEL_HAS_SOURCE_DIR=1
+	dh_auto_configure -- -DREVISION_LAST=$(DEB_VERSION_UPSTREAM) -DREVISION=$(DEB_VERSION_UPSTREAM) -DLLVM_DEFINITIONS="-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS" -DBCC_KERNEL_HAS_SOURCE_DIR=1 -DPYTHON_CMD="python2;python3"
 
 
 override_dh_auto_install:

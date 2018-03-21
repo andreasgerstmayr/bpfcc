@@ -1,3 +1,4 @@
+build-for-multiple-python-installations.diff
 fix-install-path.patch
 fix-uint128-build-failure.patch
 force-using-clang-4.0.diff

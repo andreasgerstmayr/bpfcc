@@ -24,7 +24,8 @@ Build-Depends: arping,
                luajit [amd64 armel armhf i386 mips mipsel powerpc],
                python-netaddr,
                python-pyroute2,
-               python:any | python-all:any | python-dev:any | python-all-dev:any
+               python:any | python-all:any | python-dev:any | python-all-dev:any,
+               python3:any | python3-all:any | python3-dev:any | python3-all-dev:any
 Homepage: https://github.com/iovisor/bcc
 Vcs-Git: https://anonscm.debian.org/git/collab-maint/bpfcc.git
 Vcs-Browser: https://anonscm.debian.org/git/collab-maint/bpfcc.git
@@ -67,6 +68,19 @@ Description: Python wrappers for BPF Compiler Collection (BCC)
  for BPF based Linux IO analysis, networking, monitoring and more
  .
  This package provides the Python bindings
+
+Package: python3-bpfcc
+Architecture: all
+Section: python
+Depends: libbpfcc (>= ${binary:Version}), ${misc:Depends}, ${python3:Depends}
+Description: Python 3 wrappers for BPF Compiler Collection (BCC)
+ BPF Compiler Collection (BCC) is a toolkit for creating efficient
+ kernel tracing and manipulation programs
+ .
+ It makes use of extended BPF (Berkeley Package Filter) and provides tools
+ for BPF based Linux IO analysis, networking, monitoring and more
+ .
+ This package provides the Python 3 bindings
 
 Package: bpfcc-tools
 Architecture: all
